@@ -27,5 +27,8 @@ EXPOSE 8501
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
-# El comando se define en docker-compose.yml por servicio
-CMD ["python", "scheduler/main.py"]
+# Copia y activa el script de inicio combinado (bot + dashboard)
+COPY entrypoint.sh .
+RUN chmod +x entrypoint.sh
+
+CMD ["./entrypoint.sh"]
