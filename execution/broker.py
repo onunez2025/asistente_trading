@@ -52,7 +52,7 @@ class Broker:
                 ticker = _SYMBOL_MAP.get(symbol, symbol.replace("/", "-").replace("USDT", "USD"))
                 data = yf.download(ticker, period="1d", interval="1m", progress=False, auto_adjust=True)
                 if data is not None and not data.empty:
-                    return float(data["Close"].iloc[-1])
+                    return float(data["Close"].squeeze().iloc[-1])
                 return None
 
             ticker = self._exchange.fetch_ticker(symbol)
