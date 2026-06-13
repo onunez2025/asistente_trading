@@ -19,7 +19,7 @@ risk:
 
 model:
   retrain_days: 30            # Reentrenar el modelo cada 30 días
-  prediction_threshold: 0.42  # Umbral reducido para generar más señales
+  prediction_threshold: 0.35  # Umbral demo para generar señales de compra
   target_threshold: 0.002     # Señal válida si el precio se mueve más de 0.2%
   historical_days: 90         # Días de datos históricos para entrenamiento
 
