@@ -1,0 +1,39 @@
+# ============================================================
+#   ASISTENTE TRADING - ARCHIVO DE CONFIGURACIÓN PRINCIPAL
+#   Edita los valores aquí para personalizar el bot
+# ============================================================
+
+trading:
+  symbol: "BTC/USDT"          # Par que va a operar el bot
+  timeframe: "1h"             # Temporalidad (1h = cada hora)
+  capital: 1000               # Capital inicial simulado en USD (paper trading)
+  mode: "paper"               # NUNCA cambiar a "live" sin probar antes
+
+risk:
+  max_position_size: 0.20     # Máximo 20% del capital por operación
+  stop_loss: 0.02             # Stop Loss: cierra si pierde 2%
+  take_profit: 0.05           # Take Profit: cierra si gana 5% (ratio 1:2.5)
+  daily_loss_limit: 0.05      # Detiene el bot si pierde 5% en el día
+  max_drawdown: 0.20          # Detiene el bot si el portfolio cae 20% desde el pico
+  max_open_positions: 1       # Solo 1 operación abierta a la vez
+
+model:
+  retrain_days: 30            # Reentrenar el modelo cada 30 días
+  prediction_threshold: 0.58  # Solo operar si la confianza supera 58%
+  target_threshold: 0.005     # Señal válida si el precio se mueve más de 0.5%
+  historical_days: 730        # Días de datos históricos para entrenamiento
+
+exchange:
+  name: "binance"
+  testnet: true               # true = red de prueba, false = dinero real
+  api_key: ""                 # Dejar vacío hasta obtener las claves
+  api_secret: ""              # Dejar vacío hasta obtener las claves
+
+telegram:
+  token: ""                   # Token del bot de Telegram (se configura después)
+  chat_id: ""                 # Tu Chat ID de Telegram (se configura después)
+  enabled: false              # Cambiar a true cuando configures Telegram
+
+logging:
+  level: "INFO"               # Nivel de detalle de los logs (INFO, DEBUG, WARNING)
+  file: "logs/trading.log"
