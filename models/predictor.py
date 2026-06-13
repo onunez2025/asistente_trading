@@ -44,13 +44,14 @@ def predict(df_raw: pd.DataFrame, threshold: float = 0.60) -> Optional[dict]:
 
         last_row = df_features[features].iloc[[-1]]
         proba = model.predict_proba(last_row)[0]
-        signal = int(proba.argmax())
-        probability = float(proba[signal])
+        buy_proba = float(proba[1])   # probabilidad de subida (clase 1)
+        signal = 1 if buy_proba >= threshold else 0
+        probability = buy_proba
 
         result = {
             "signal": signal,
             "probability": probability,
-            "confidence_ok": probability >= threshold,
+            "confidence_ok": buy_proba >= threshold,
         }
 
         action = "COMPRAR" if signal == 1 else "VENDER/ESPERAR"
