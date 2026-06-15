@@ -377,22 +377,22 @@ with col_panel:
     dd_c  = "#3fb950" if drawdown > -10 else "#f85149"
 
     st.markdown(f"""
-    <div class="metric-card">
-      <div class="metric-label">Valor Total</div>
+    <div class="metric-card" title="Todo tu dinero actual: lo que está libre + lo que está invertido en BTC ahora mismo.">
+      <div class="metric-label">Valor Total ℹ️</div>
       <div class="metric-value blue">${total_val:,.2f}</div>
       <div class="metric-sub">Capital inicial: ${initial_capital:,.0f}</div>
     </div>
-    <div class="metric-card">
-      <div class="metric-label">PnL Total</div>
+    <div class="metric-card" title="Ganancia o pérdida total desde que arrancó el bot. Verde = ganando. Rojo = perdiendo.">
+      <div class="metric-label">PnL Total ℹ️</div>
       <div class="metric-value" style="color:{pnl_c}">${total_pnl:+.2f}</div>
       <div class="metric-sub">{total_pnl_pct:+.2f}%</div>
     </div>
-    <div class="metric-card">
-      <div class="metric-label">PnL Hoy</div>
+    <div class="metric-card" title="Cuánto ganaste o perdiste solo hoy. Se reinicia cada día a las 12 de la noche.">
+      <div class="metric-label">PnL Hoy ℹ️</div>
       <div class="metric-value" style="color:{hoy_c}">${today_pnl:+.2f}</div>
     </div>
-    <div class="metric-card">
-      <div class="metric-label">Drawdown</div>
+    <div class="metric-card" title="Cuánto bajó tu capital desde su punto más alto. Si llega a -20% el bot se detiene automáticamente para proteger tu dinero.">
+      <div class="metric-label">Drawdown ℹ️</div>
       <div class="metric-value" style="color:{dd_c}">{drawdown:.1f}%</div>
       <div class="metric-sub">límite: −20%</div>
     </div>""", unsafe_allow_html=True)
@@ -405,15 +405,20 @@ with col_panel:
         st.markdown("<div class='section-hdr'>Posición Abierta</div>", unsafe_allow_html=True)
         st.markdown(f"""
         <div style="background:#161b22;border:1px solid #30363d;border-radius:10px;padding:12px">
-          <div class="stat-row"><span class="stat-key">Entrada</span>
+          <div class="stat-row">
+            <span class="stat-key" title="Precio al que el bot compró Bitcoin">Entrada ℹ️</span>
             <span class="stat-val">${t.price:,.2f}</span></div>
-          <div class="stat-row"><span class="stat-key">Cantidad</span>
+          <div class="stat-row">
+            <span class="stat-key" title="Cuántos Bitcoin compró el bot con tu dinero">Cantidad ℹ️</span>
             <span class="stat-val">{t.quantity:.5f} BTC</span></div>
-          <div class="stat-row"><span class="stat-key">Stop Loss</span>
+          <div class="stat-row">
+            <span class="stat-key" title="Si el precio cae hasta aquí, el bot vende automáticamente para evitar perder más. Pérdida máxima: 2%">Stop Loss ℹ️</span>
             <span class="stat-val red">${t.stop_loss:,.2f}</span></div>
-          <div class="stat-row"><span class="stat-key">Take Profit</span>
+          <div class="stat-row">
+            <span class="stat-key" title="Si el precio sube hasta aquí, el bot vende automáticamente y registra la ganancia. Ganancia objetivo: 5%">Take Profit ℹ️</span>
             <span class="stat-val green">${t.take_profit:,.2f}</span></div>
-          <div class="stat-row" style="border:none"><span class="stat-key">PnL no realizado</span>
+          <div class="stat-row" style="border:none">
+            <span class="stat-key" title="Cuánto estás ganando o perdiendo en esta operación ahora mismo. Cambia con el precio de BTC. Solo se hace real cuando el bot vende.">PnL no realizado ℹ️</span>
             <span class="stat-val" style="color:{u_c}">{unreal:+.2f}%</span></div>
         </div>""", unsafe_allow_html=True)
 
@@ -537,6 +542,35 @@ TELEGRAM_CHAT_ID=tu_id
 TELEGRAM_ENABLED=true
 ```
 4. Reinicia el servicio
+""")
+
+with st.expander("📖 ¿Qué significa cada número? — Glosario completo"):
+    st.markdown("""
+| Término | Qué significa en simple |
+|---|---|
+| **Valor Total** | Todo tu dinero ahora mismo: lo libre + lo que está invertido en BTC |
+| **Capital inicial** | Con cuánto dinero arrancaste la simulación |
+| **PnL Total** | Cuánto ganaste o perdiste desde el primer día. Verde = ganando ✅ |
+| **PnL Hoy** | Cuánto ganaste o perdiste solo hoy. Se reinicia a medianoche |
+| **PnL no realizado** | La ganancia/pérdida de una operación que todavía está abierta. Solo se hace real cuando el bot vende |
+| **Drawdown** | Cuánto bajó tu dinero desde su punto más alto. Si llega a -20% el bot se detiene solo para protegerte |
+| **EN POSICIÓN** 🟢 | El bot compró BTC y está esperando que suba para vender |
+| **ANALIZANDO** 🔍 | El bot está mirando el mercado pero no ha encontrado una buena oportunidad aún |
+| **ESPERANDO SEÑAL** ⏳ | La última operación terminó y el bot espera la próxima señal de compra |
+| **Entrada** | Precio al que el bot compró Bitcoin |
+| **Stop Loss** | Precio de emergencia: si BTC baja hasta ahí, el bot vende para no perder más (límite: -2%) |
+| **Take Profit** | Precio objetivo: si BTC sube hasta ahí, el bot vende y toma la ganancia (+5%) |
+| **Win Rate** | % de operaciones ganadoras. Ejemplo: 60% = de cada 10 operaciones, 6 terminaron en ganancia |
+| **Profit Factor** | Relación entre lo que ganas y lo que pierdes. Mayor a 1.0 es rentable |
+| **Sharpe Ratio** | Mide si las ganancias valen el riesgo. Mayor a 1.0 es bueno |
+| **Buy & Hold** | Comparación: cuánto habrías ganado si solo comprabas BTC y lo dejabas sin hacer nada |
+| **Max Drawdown** | La mayor caída que tuvo el portfolio en toda la historia del bot |
+| **EMA 20 / 50 / 200** | Promedios del precio de BTC. El bot los usa para detectar tendencias |
+| **RSI** | Indica si BTC está "sobrecomprado" (puede bajar) o "sobrevendido" (puede subir). Escala de 0 a 100 |
+| **Volumen 24H** | Total de Bitcoin comprado y vendido en el mundo en las últimas 24 horas |
+| **MÁX / MÍN 24H** | El precio más alto y más bajo que tuvo BTC en las últimas 24 horas |
+| **Modo PAPER** 🟡 | Simulación con dinero ficticio. El bot opera como si fuera real pero sin arriesgar nada |
+| **Modo LIVE** 🔴 | Dinero real. Solo activar cuando el bot lleve meses de simulación exitosa |
 """)
 
 st.markdown("<hr style='border-color:#30363d;margin:12px 0'>", unsafe_allow_html=True)
