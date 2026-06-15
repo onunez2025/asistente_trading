@@ -6,11 +6,11 @@
 trading:
   symbol: "BTC/USDT"          # Par que va a operar el bot
   timeframe: "1h"             # Temporalidad (1h = cada hora)
-  capital: 1000               # Capital inicial simulado en USD (paper trading)
+  capital: 27                 # Capital inicial en USD (~100 soles peruanos)
   mode: "paper"               # NUNCA cambiar a "live" sin probar antes
 
 risk:
-  max_position_size: 0.20     # Máximo 20% del capital por operación
+  max_position_size: 0.50     # 50% del capital por operación (necesario con capital pequeño)
   stop_loss: 0.02             # Stop Loss: cierra si pierde 2%
   take_profit: 0.05           # Take Profit: cierra si gana 5% (ratio 1:2.5)
   daily_loss_limit: 0.05      # Detiene el bot si pierde 5% en el día
