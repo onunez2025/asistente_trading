@@ -577,90 +577,80 @@ with col_panel:
     dd_c   = "pos" if drawdown > -10 else "neg"
     pct_c  = "pos" if total_pnl_pct >= 0 else "neg"
 
-    st.markdown(f"""
-    <div class="bn-panel">
-      <div class="bn-panel-tab">⚡ PANEL DE CONTROL</div>
-      <div class="bn-panel-body">
+    _btn_color = {"bn-btn-buy": "#0ECB81", "bn-btn-sell": "#F6465D", "bn-btn-wait": "#474D57"}.get(btn_cls, "#474D57")
+    _btn_text_c = "#fff" if btn_cls != "bn-btn-wait" else "#848E9C"
 
-        <!-- Botón estado -->
-        <div class="{btn_cls}">{btn_txt}</div>
-        <div style="font-size:0.7rem;color:#848E9C;text-align:center;margin-top:-10px;margin-bottom:12px">
-          {state_detail} &nbsp;·&nbsp; Win Rate: <span style="color:#F0B90B;font-weight:700">{wr:.0f}%</span>
-        </div>
+    st.markdown(
+        f'<div style="background:#181A20;border:1px solid #2B2F36;border-radius:4px;overflow:hidden">'
+        f'<div style="background:#1E2026;border-bottom:1px solid #2B2F36;padding:10px 14px;'
+        f'font-size:0.75rem;font-weight:700;color:#F0B90B;letter-spacing:0.5px">⚡ PANEL DE CONTROL</div>'
+        f'<div style="padding:12px 14px">'
+        f'<div style="width:100%;padding:11px 0;background:{_btn_color};border-radius:4px;'
+        f'text-align:center;font-size:0.85rem;font-weight:700;color:{_btn_text_c};'
+        f'letter-spacing:0.5px;margin-bottom:6px">{btn_txt}</div>'
+        f'<div style="font-size:0.68rem;color:#848E9C;text-align:center;margin-bottom:12px">'
+        f'{state_detail} &nbsp;·&nbsp; Win Rate: <span style="color:#F0B90B;font-weight:700">{wr:.0f}%</span></div>'
+        f'</div></div>',
+        unsafe_allow_html=True,
+    )
 
-        <!-- Portfolio metrics -->
-        <div class="bn-row">
-          <span class="bn-row-key" title="Capital libre + valor invertido en BTC">Valor Total</span>
-          <span class="bn-row-val gold">${total_val:,.2f}</span>
-        </div>
-        <div class="bn-row">
-          <span class="bn-row-key">Capital inicial</span>
-          <span class="bn-row-val">${initial_capital:,.2f}</span>
-        </div>
-        <div class="bn-row">
-          <span class="bn-row-key" title="Ganancia/pérdida total desde el inicio">PnL Total</span>
-          <span class="bn-row-val {pnl_c}">${total_pnl:+.2f} ({total_pnl_pct:+.2f}%)</span>
-        </div>
-        <div class="bn-row">
-          <span class="bn-row-key" title="Ganancia/pérdida solo hoy">PnL Hoy</span>
-          <span class="bn-row-val {hoy_c}">${today_pnl:+.2f}</span>
-        </div>
-        <div class="bn-row">
-          <span class="bn-row-key">Efectivo libre</span>
-          <span class="bn-row-val">${cash:,.2f}</span>
-        </div>
-        <div class="bn-row">
-          <span class="bn-row-key" title="Caída desde el punto más alto. Límite -20%">Drawdown</span>
-          <span class="bn-row-val {dd_c}">{drawdown:.1f}%</span>
-        </div>
-        <div class="bn-row" style="border:none">
-          <span class="bn-row-key">Operaciones</span>
-          <span class="bn-row-val">{n_ops} cerradas · {len(open_trades)} abierta</span>
-        </div>
-      </div>
-    </div>""", unsafe_allow_html=True)
+    def _row(label, value, color="#EAECEF", border=True, tooltip=""):
+        tip = f' title="{tooltip}"' if tooltip else ""
+        brd = "border-bottom:1px solid #2B2F36;" if border else ""
+        return (
+            f'<div style="display:flex;justify-content:space-between;align-items:center;'
+            f'padding:6px 14px;{brd}font-size:0.78rem">'
+            f'<span style="color:#848E9C"{tip}>{label}</span>'
+            f'<span style="color:{color};font-weight:600;font-variant-numeric:tabular-nums">{value}</span>'
+            f'</div>'
+        )
+
+    pnl_color = "#0ECB81" if total_pnl >= 0 else "#F6465D"
+    hoy_color = "#0ECB81" if today_pnl >= 0 else "#F6465D"
+    dd_color  = "#0ECB81" if drawdown > -10 else "#F6465D"
+
+    rows_html = (
+        _row("Valor Total",    f"${total_val:,.2f}",  "#F0B90B", tooltip="Capital libre + valor invertido en BTC")
+        + _row("Capital inicial", f"${initial_capital:,.2f}")
+        + _row("PnL Total",    f"${total_pnl:+.2f} ({total_pnl_pct:+.2f}%)", pnl_color, tooltip="Ganancia/pérdida desde el inicio")
+        + _row("PnL Hoy",      f"${today_pnl:+.2f}", hoy_color, tooltip="Ganancia/pérdida solo hoy")
+        + _row("Efectivo libre", f"${cash:,.2f}")
+        + _row("Drawdown",     f"{drawdown:.1f}%", dd_color, tooltip="Límite -20%, el bot se protege solo")
+        + _row("Operaciones",  f"{n_ops} cerradas · {len(open_trades)} abierta", border=False)
+    )
+    st.markdown(
+        f'<div style="background:#181A20;border:1px solid #2B2F36;border-radius:4px;'
+        f'margin-top:8px;overflow:hidden">{rows_html}</div>',
+        unsafe_allow_html=True,
+    )
 
     # ── Posición abierta (si existe) ──────────────────────────────────────────
     if open_trades:
         t = open_trades[0]
         unreal = (price / t.price - 1) * 100 if price > 0 and t.price > 0 else 0
-        u_c = "pos" if unreal >= 0 else "neg"
         unreal_usd = (price - t.price) * t.quantity if price > 0 else 0
 
-        st.markdown(f"""
-        <div class="bn-panel" style="margin-top:8px">
-          <div class="bn-panel-tab">📊 POSICIÓN ABIERTA — BTC/USDT</div>
-          <div class="bn-panel-body">
-            <div class="bn-row">
-              <span class="bn-row-key" title="Precio al que el bot compró BTC">Precio entrada</span>
-              <span class="bn-row-val">${t.price:,.2f}</span>
-            </div>
-            <div class="bn-row">
-              <span class="bn-row-key">Precio actual</span>
-              <span class="bn-row-val {'pos' if price >= t.price else 'neg'}">${price:,.2f}</span>
-            </div>
-            <div class="bn-row">
-              <span class="bn-row-key" title="Cuántos Bitcoin compró el bot">Cantidad</span>
-              <span class="bn-row-val">{t.quantity:.6f} BTC</span>
-            </div>
-            <div class="bn-row">
-              <span class="bn-row-key">Valor invertido</span>
-              <span class="bn-row-val">${t.value_usd:,.2f}</span>
-            </div>
-            <div class="bn-row">
-              <span class="bn-row-key" title="Si BTC baja aquí, el bot vende para protegerte (-2%)">Stop Loss</span>
-              <span class="bn-row-val neg">${t.stop_loss:,.2f}</span>
-            </div>
-            <div class="bn-row">
-              <span class="bn-row-key" title="Si BTC sube aquí, el bot vende y toma ganancia (+5%)">Take Profit</span>
-              <span class="bn-row-val pos">${t.take_profit:,.2f}</span>
-            </div>
-            <div class="bn-row" style="border:none">
-              <span class="bn-row-key" title="Ganancia/pérdida no realizada. Solo se hace real al vender.">PnL no realizado</span>
-              <span class="bn-row-val {u_c}">{unreal:+.2f}% (${unreal_usd:+.2f})</span>
-            </div>
-          </div>
-        </div>""", unsafe_allow_html=True)
+        price_now_color = "#0ECB81" if price >= t.price else "#F6465D"
+        unreal_color    = "#0ECB81" if unreal >= 0 else "#F6465D"
+        pos_rows = (
+            _row("Precio entrada", f"${t.price:,.2f}", tooltip="Precio al que el bot compró BTC")
+            + _row("Precio actual",  f"${price:,.2f}", price_now_color)
+            + _row("Cantidad",       f"{t.quantity:.6f} BTC", tooltip="Cuántos Bitcoin compró el bot")
+            + _row("Valor invertido", f"${t.value_usd:,.2f}")
+            + _row("Stop Loss",      f"${t.stop_loss:,.2f}", "#F6465D", tooltip="Si BTC baja aquí el bot vende (-2%)")
+            + _row("Take Profit",    f"${t.take_profit:,.2f}", "#0ECB81", tooltip="Si BTC sube aquí el bot vende (+5%)")
+            + _row("PnL no realizado", f"{unreal:+.2f}% (${unreal_usd:+.2f})", unreal_color, border=False,
+                   tooltip="Solo se hace real cuando el bot vende")
+        )
+        st.markdown(
+            f'<div style="background:#181A20;border:1px solid #2B2F36;border-radius:4px;'
+            f'margin-top:8px;overflow:hidden">'
+            f'<div style="background:#1E2026;border-bottom:1px solid #2B2F36;padding:9px 14px;'
+            f'font-size:0.72rem;font-weight:700;color:#F0B90B;letter-spacing:0.5px">'
+            f'📊 POSICIÓN ABIERTA — BTC/USDT</div>'
+            f'{pos_rows}</div>',
+            unsafe_allow_html=True,
+        )
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SEGUNDA FILA: Estadísticas + Curva de Equity
@@ -671,11 +661,16 @@ st.markdown("<div style='border-top:1px solid #2B2F36;margin:10px 0 8px 0'></div
 col_stats, col_eq = st.columns([1, 2])
 
 with col_stats:
-    st.markdown("<div class='bn-section-title'>Estadísticas del Bot</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div style='font-size:0.7rem;font-weight:700;color:#848E9C;text-transform:uppercase;"
+        "letter-spacing:1.5px;padding:8px 14px;background:#1E2026;border-top:1px solid #2B2F36;"
+        "border-bottom:1px solid #2B2F36;margin-bottom:0'>Estadísticas del Bot</div>",
+        unsafe_allow_html=True,
+    )
     if closed:
         wins   = [t for t in closed if (t.pnl or 0) > 0]
         losses = [t for t in closed if (t.pnl or 0) <= 0]
-        wr     = len(wins) / len(closed) * 100
+        wr_s   = len(wins) / len(closed) * 100
         total_cl_pnl = sum(t.pnl or 0 for t in closed)
         avg_win  = sum(t.pnl or 0 for t in wins)   / len(wins)   if wins   else 0
         avg_loss = sum(t.pnl or 0 for t in losses)  / len(losses) if losses else 0
@@ -684,53 +679,38 @@ with col_stats:
         pf = gross_win / gross_loss if gross_loss > 0 else 0
         total_commissions = sum(t.commission_paid or 0 for t in closed)
         avg_commission    = total_commissions / len(closed) if closed else 0
-        wr_c  = "pos" if wr >= 50 else "neg"
-        pf_c  = "pos" if pf >= 1  else "neg"
-        pnl_c = "pos" if total_cl_pnl >= 0 else "neg"
+        wr_c  = "#0ECB81" if wr_s >= 50 else "#F6465D"
+        pf_c  = "#0ECB81" if pf >= 1   else "#F6465D"
+        pc    = "#0ECB81" if total_cl_pnl >= 0 else "#F6465D"
 
-        st.markdown(f"""
-        <div style="padding:4px 0">
-          <div class="bn-row">
-            <span class="bn-row-key">Total operaciones</span>
-            <span class="bn-row-val">{len(closed)}</span>
-          </div>
-          <div class="bn-row">
-            <span class="bn-row-key">Win Rate</span>
-            <span class="bn-row-val {wr_c}">{wr:.1f}%</span>
-          </div>
-          <div class="bn-row">
-            <span class="bn-row-key">✅ Ganadoras</span>
-            <span class="bn-row-val pos">{len(wins)}</span>
-          </div>
-          <div class="bn-row">
-            <span class="bn-row-key">❌ Perdedoras</span>
-            <span class="bn-row-val neg">{len(losses)}</span>
-          </div>
-          <div class="bn-row">
-            <span class="bn-row-key">PnL neto total</span>
-            <span class="bn-row-val {pnl_c}">${total_cl_pnl:+.2f}</span>
-          </div>
-          <div class="bn-row">
-            <span class="bn-row-key">Ganancia media/op</span>
-            <span class="bn-row-val pos">${avg_win:.3f}</span>
-          </div>
-          <div class="bn-row">
-            <span class="bn-row-key">Pérdida media/op</span>
-            <span class="bn-row-val neg">${avg_loss:.3f}</span>
-          </div>
-          <div class="bn-row">
-            <span class="bn-row-key">Profit Factor</span>
-            <span class="bn-row-val {pf_c}">{pf:.2f}</span>
-          </div>
-          <div class="bn-row">
-            <span class="bn-row-key" title="Total pagado a Binance (0.1% compra + 0.1% venta)">Comisiones totales</span>
-            <span class="bn-row-val" style="color:#F0B90B">${total_commissions:.4f}</span>
-          </div>
-          <div class="bn-row" style="border:none">
-            <span class="bn-row-key">Comisión media/op</span>
-            <span class="bn-row-val" style="color:#F0B90B">${avg_commission:.4f}</span>
-          </div>
-        </div>""", unsafe_allow_html=True)
+        def _srow(label, value, color="#EAECEF", border=True, tip=""):
+            t2 = f' title="{tip}"' if tip else ""
+            brd = "border-bottom:1px solid #2B2F36;" if border else ""
+            return (
+                f'<div style="display:flex;justify-content:space-between;padding:5px 14px;'
+                f'{brd}font-size:0.78rem">'
+                f'<span style="color:#848E9C"{t2}>{label}</span>'
+                f'<span style="color:{color};font-weight:600">{value}</span></div>'
+            )
+
+        stats_html = (
+            _srow("Total operaciones", str(len(closed)))
+            + _srow("Win Rate",         f"{wr_s:.1f}%",       wr_c)
+            + _srow("✅ Ganadoras",      str(len(wins)),        "#0ECB81")
+            + _srow("❌ Perdedoras",     str(len(losses)),      "#F6465D")
+            + _srow("PnL neto total",    f"${total_cl_pnl:+.2f}", pc)
+            + _srow("Ganancia media/op", f"${avg_win:.3f}",     "#0ECB81")
+            + _srow("Pérdida media/op",  f"${avg_loss:.3f}",    "#F6465D")
+            + _srow("Profit Factor",     f"{pf:.2f}",           pf_c)
+            + _srow("Comisiones totales", f"${total_commissions:.4f}", "#F0B90B",
+                    tip="Total pagado a Binance (0.1% compra + 0.1% venta)")
+            + _srow("Comisión media/op", f"${avg_commission:.4f}", "#F0B90B", border=False)
+        )
+        st.markdown(
+            f'<div style="background:#181A20;border:1px solid #2B2F36;border-radius:4px;'
+            f'margin-top:4px">{stats_html}</div>',
+            unsafe_allow_html=True,
+        )
     else:
         st.markdown(
             "<div style='padding:16px;color:#848E9C;font-size:0.8rem'>"
@@ -739,7 +719,12 @@ with col_stats:
         )
 
 with col_eq:
-    st.markdown("<div class='bn-section-title'>Curva de Equity</div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div style='font-size:0.7rem;font-weight:700;color:#848E9C;text-transform:uppercase;"
+        "letter-spacing:1.5px;padding:8px 14px;background:#1E2026;border-top:1px solid #2B2F36;"
+        "border-bottom:1px solid #2B2F36;margin-bottom:0'>Curva de Equity</div>",
+        unsafe_allow_html=True,
+    )
     if snapshots:
         eq_df = pd.DataFrame([{"t": s.timestamp, "v": s.total_value} for s in snapshots])
         fig_eq = go.Figure()
@@ -778,9 +763,16 @@ with col_eq:
 # ══════════════════════════════════════════════════════════════════════════════
 # HISTORIAL DE OPERACIONES — tabla estilo Binance
 # ══════════════════════════════════════════════════════════════════════════════
-st.markdown("<div style='border-top:1px solid #2B2F36;margin:10px 0 0 0'></div>",
-            unsafe_allow_html=True)
-st.markdown("<div class='bn-section-title'>Historial de Operaciones</div>", unsafe_allow_html=True)
+st.markdown(
+    "<div style='border-top:1px solid #2B2F36;margin:10px 0 0 0'></div>",
+    unsafe_allow_html=True,
+)
+st.markdown(
+    "<div style='font-size:0.7rem;font-weight:700;color:#848E9C;text-transform:uppercase;"
+    "letter-spacing:1.5px;padding:8px 14px;background:#1E2026;border-top:1px solid #2B2F36;"
+    "border-bottom:1px solid #2B2F36;margin-bottom:4px'>Historial de Operaciones</div>",
+    unsafe_allow_html=True,
+)
 
 if trades:
     recent = sorted(trades, key=lambda t: t.timestamp or pd.Timestamp.min, reverse=True)[:25]
