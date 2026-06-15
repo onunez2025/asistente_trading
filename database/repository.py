@@ -37,6 +37,7 @@ def close_trade(
     trade_id: int,
     close_price: float,
     close_reason: str = "signal",
+    commission_rate: float = 0.001,
 ) -> Optional[Trade]:
     with _session() as s:
         trade = s.query(Trade).filter(Trade.id == trade_id).first()
@@ -44,15 +45,27 @@ def close_trade(
             logger.warning(f"Trade {trade_id} no encontrado para cerrar")
             return None
 
-        trade.close_price = close_price
-        trade.close_time = datetime.utcnow()
-        trade.close_reason = close_reason
-        trade.is_open = False
-        trade.pnl = round((close_price - trade.price) * trade.quantity, 4)
-        trade.pnl_pct = round((close_price / trade.price - 1) * 100, 4)
+        # Comisión de compra (ya pagada al abrir) + comisión de venta (se paga ahora)
+        commission_open  = trade.value_usd * commission_rate
+        commission_close = close_price * trade.quantity * commission_rate
+        total_commission = round(commission_open + commission_close, 6)
+
+        gross_pnl = (close_price - trade.price) * trade.quantity
+        net_pnl   = gross_pnl - total_commission
+
+        trade.close_price     = close_price
+        trade.close_time      = datetime.utcnow()
+        trade.close_reason    = close_reason
+        trade.is_open         = False
+        trade.commission_paid = total_commission
+        trade.pnl             = round(net_pnl, 4)
+        trade.pnl_pct         = round((close_price / trade.price - 1) * 100, 4)
         s.commit()
         s.refresh(trade)
-        logger.info(f"Trade cerrado: PnL={trade.pnl:.2f} USD ({trade.pnl_pct:.2f}%)")
+        logger.info(
+            f"Trade cerrado: PnL bruto={gross_pnl:.4f} | "
+            f"comisión={total_commission:.4f} | PnL neto={net_pnl:.4f} USD"
+        )
         return trade
 
 

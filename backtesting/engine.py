@@ -25,6 +25,7 @@ def run_backtest(
     max_position_pct: float = 0.15,
     confidence_threshold: float = 0.60,
     test_split: float = 0.20,
+    commission: float = 0.001,
 ) -> dict:
     """
     Simula la estrategia completa sobre datos que el modelo NO vio durante el entrenamiento.
@@ -84,8 +85,12 @@ def run_backtest(
                 exit_reason = "signal"
 
             if exit_reason:
-                pnl = (exit_price - entry_price) * position_qty
-                capital += exit_price * position_qty
+                gross_proceeds = exit_price * position_qty
+                commission_close = gross_proceeds * commission
+                total_commission = round(entry_commission + commission_close, 6)
+                net_proceeds = gross_proceeds - commission_close
+                pnl = net_proceeds - (entry_price * position_qty)
+                capital += net_proceeds
                 trades.append({
                     "entry_time": entry_time,
                     "exit_time": ts,
@@ -93,6 +98,7 @@ def run_backtest(
                     "exit_price": exit_price,
                     "pnl": round(pnl, 4),
                     "pnl_pct": round((exit_price / entry_price - 1) * 100, 3),
+                    "commission": total_commission,
                     "reason": exit_reason,
                 })
                 in_position = False
@@ -101,9 +107,11 @@ def run_backtest(
         if not in_position and row["pred_signal"] == 1:
             position_usd = capital * max_position_pct
             if position_usd >= 10:
-                position_qty = position_usd / price
+                commission_open = position_usd * commission
+                position_qty = (position_usd - commission_open) / price
                 capital -= position_usd
                 entry_price = price
+                entry_commission = commission_open
                 entry_time = ts
                 sl_price = entry_price * (1 - stop_loss_pct)
                 tp_price = entry_price * (1 + take_profit_pct)
@@ -112,8 +120,12 @@ def run_backtest(
     # Cierra posición abierta al final del período
     if in_position:
         last_price = float(df["close"].iloc[-1])
-        pnl = (last_price - entry_price) * position_qty
-        capital += last_price * position_qty
+        gross_proceeds = last_price * position_qty
+        commission_close = gross_proceeds * commission
+        total_commission = round(entry_commission + commission_close, 6)
+        net_proceeds = gross_proceeds - commission_close
+        pnl = net_proceeds - (entry_price * position_qty)
+        capital += net_proceeds
         trades.append({
             "entry_time": entry_time,
             "exit_time": df.index[-1],
@@ -121,6 +133,7 @@ def run_backtest(
             "exit_price": last_price,
             "pnl": round(pnl, 4),
             "pnl_pct": round((last_price / entry_price - 1) * 100, 3),
+            "commission": total_commission,
             "reason": "end_of_period",
         })
 
@@ -147,6 +160,9 @@ def run_backtest(
         profit_factor = round(gross_profit / gross_loss, 3)
         avg_win = wins["pnl"].mean() if len(wins) > 0 else 0
         avg_loss = losses["pnl"].mean() if len(losses) > 0 else 0
+        total_commissions = trades_df["commission"].sum() if "commission" in trades_df.columns else 0
+    else:
+        total_commissions = 0
 
     # Sharpe Ratio (anualizado, usando retornos horarios)
     returns = equity_df["equity"].pct_change().dropna()
@@ -171,6 +187,8 @@ def run_backtest(
         "profit_factor": profit_factor,
         "ganancia_promedio_usd": round(avg_win, 3),
         "perdida_promedio_usd": round(avg_loss, 3),
+        "comisiones_totales_usd": round(total_commissions, 4),
+        "comision_promedio_usd": round(total_commissions / n_trades, 4) if n_trades > 0 else 0,
     }
 
     _log_metrics(metrics)

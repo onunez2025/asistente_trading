@@ -31,8 +31,9 @@ class Trade(Base):
     close_price = Column(Float, nullable=True)
     close_time = Column(DateTime, nullable=True)
     close_reason = Column(String, nullable=True) # "stop_loss", "take_profit", "signal", "manual"
-    pnl = Column(Float, nullable=True)           # Ganancia/Pérdida en USD
+    pnl = Column(Float, nullable=True)           # Ganancia/Pérdida en USD (después de comisiones)
     pnl_pct = Column(Float, nullable=True)       # Ganancia/Pérdida en %
+    commission_paid = Column(Float, default=0.0) # Comisión total pagada en USD (compra + venta)
 
     def __repr__(self):
         return f"<Trade {self.side} {self.symbol} @ {self.price:.2f} | PnL: {self.pnl}>"

@@ -440,6 +440,8 @@ with col_stats:
         gross_win  = sum(t.pnl or 0 for t in wins)
         gross_loss = abs(sum(t.pnl or 0 for t in losses))
         pf = gross_win / gross_loss if gross_loss > 0 else 0
+        total_commissions = sum(t.commission_paid or 0 for t in closed)
+        avg_commission = total_commissions / len(closed) if closed else 0
         wr_c  = "#3fb950" if wr >= 50 else "#f85149"
         pf_c  = "#3fb950" if pf >= 1  else "#f85149"
         pnl_c = "#3fb950" if total_cl_pnl >= 0 else "#f85149"
@@ -453,14 +455,18 @@ with col_stats:
             <span class="stat-val green">{len(wins)}</span></div>
           <div class="stat-row"><span class="stat-key">❌ Perdedoras</span>
             <span class="stat-val red">{len(losses)}</span></div>
-          <div class="stat-row"><span class="stat-key">PnL Total</span>
+          <div class="stat-row"><span class="stat-key">PnL neto total</span>
             <span class="stat-val" style="color:{pnl_c}">${total_cl_pnl:+.2f}</span></div>
           <div class="stat-row"><span class="stat-key">Ganancia media</span>
             <span class="stat-val green">${avg_win:.2f}</span></div>
           <div class="stat-row"><span class="stat-key">Pérdida media</span>
             <span class="stat-val red">${avg_loss:.2f}</span></div>
-          <div class="stat-row" style="border:none"><span class="stat-key">Profit Factor</span>
+          <div class="stat-row"><span class="stat-key">Profit Factor</span>
             <span class="stat-val" style="color:{pf_c}">{pf:.2f}</span></div>
+          <div class="stat-row"><span class="stat-key" title="Total pagado en comisiones a Binance (0.1% compra + 0.1% venta)">💸 Comisiones pagadas</span>
+            <span class="stat-val" style="color:#d29922">${total_commissions:.4f}</span></div>
+          <div class="stat-row" style="border:none"><span class="stat-key" title="Comisión promedio por operación">💸 Comisión media/op</span>
+            <span class="stat-val" style="color:#d29922">${avg_commission:.4f}</span></div>
         </div>""", unsafe_allow_html=True)
     else:
         st.info("Sin operaciones cerradas aún.")
@@ -500,17 +506,20 @@ if trades:
     for t in recent:
         if t.is_open:
             pnl_str = "🟢 Abierta"
+            commission_str = "—"
         else:
             v = t.pnl or 0
             pnl_str = f"✅ +${v:.2f}" if v > 0 else f"❌ ${v:.2f}"
+            commission_str = f"${(t.commission_paid or 0):.4f}"
         rows.append({
-            "Fecha":   t.timestamp.strftime("%d/%m %H:%M") if t.timestamp else "—",
-            "Par":     t.symbol,
-            "Entrada": f"${t.price:,.2f}",
-            "Salida":  f"${t.close_price:,.2f}" if t.close_price else "—",
-            "BTC":     f"{t.quantity:.5f}",
-            "PnL":     pnl_str,
-            "Cierre":  t.close_reason or "—",
+            "Fecha":      t.timestamp.strftime("%d/%m %H:%M") if t.timestamp else "—",
+            "Par":        t.symbol,
+            "Entrada":    f"${t.price:,.2f}",
+            "Salida":     f"${t.close_price:,.2f}" if t.close_price else "—",
+            "BTC":        f"{t.quantity:.5f}",
+            "Comisión":   commission_str,
+            "PnL neto":   pnl_str,
+            "Cierre":     t.close_reason or "—",
         })
     st.dataframe(pd.DataFrame(rows), use_container_width=True,
                  hide_index=True, height=280)

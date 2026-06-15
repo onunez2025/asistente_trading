@@ -28,6 +28,7 @@ exchange:
   testnet: true               # true = red de prueba, false = dinero real
   api_key: ""                 # Dejar vacío hasta obtener las claves
   api_secret: ""              # Dejar vacío hasta obtener las claves
+  commission: 0.001           # 0.1% por operación (estándar Binance spot)
 
 telegram:
   token: ""                   # Token del bot de Telegram (se configura después)

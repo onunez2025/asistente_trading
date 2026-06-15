@@ -21,12 +21,13 @@ class Broker:
     def __init__(self, exchange_cfg: dict, mode: str = "paper"):
         self.mode = mode
         self.exchange_cfg = exchange_cfg
+        self.commission = float(exchange_cfg.get("commission", 0.001))
         self._exchange: Optional[ccxt.Exchange] = None
 
         if mode == "live":
             self._exchange = self._connect()
 
-        logger.info(f"Broker iniciado en modo: {mode.upper()}")
+        logger.info(f"Broker iniciado en modo: {mode.upper()} | comisión: {self.commission:.2%}")
         init_db()
 
     def _connect(self) -> ccxt.Exchange:
@@ -86,6 +87,10 @@ class Broker:
                 f"= ${decision.position_size_usd:.2f}"
             )
 
+        # Comisión de compra descontada del capital
+        commission_open = round(decision.position_size_usd * self.commission, 6)
+        logger.info(f"Comisión de compra: ${commission_open:.4f}")
+
         trade = Trade(
             symbol=symbol,
             side="buy",
@@ -96,6 +101,7 @@ class Broker:
             stop_loss=decision.stop_loss_price,
             take_profit=decision.take_profit_price,
             is_open=True,
+            commission_paid=commission_open,
         )
         saved = save_trade(trade)
         return saved
@@ -121,7 +127,7 @@ class Broker:
                 f"[PAPER] Simulando venta: {quantity:.6f} {symbol} @ {current_price:.4f} | motivo={reason}"
             )
 
-        return close_trade(trade_id, current_price, reason)
+        return close_trade(trade_id, current_price, reason, self.commission)
 
     def check_and_manage_open_position(
         self,
