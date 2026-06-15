@@ -246,6 +246,97 @@ st.markdown("""
     color: #848E9C !important;
     font-size: 0.78rem !important;
   }
+
+  /* ══════════════════════════════════════════
+     MÓVIL — pantallas ≤ 768px
+     ══════════════════════════════════════════ */
+  @media (max-width: 768px) {
+
+    /* Reducir padding global para ganar espacio */
+    .block-container {
+      padding-left: 8px !important;
+      padding-right: 8px !important;
+    }
+
+    /* Precio más grande y legible en móvil */
+    .bn-price { font-size: 2.1rem !important; }
+    .bn-logo  { font-size: 1.0rem !important; }
+    .bn-pair  { font-size: 0.9rem !important; }
+
+    /* Barra de stats: scroll horizontal en vez de colapsar */
+    .bn-stats-bar {
+      gap: 16px !important;
+      overflow-x: auto !important;
+      flex-wrap: nowrap !important;
+      padding-bottom: 4px !important;
+      -webkit-overflow-scrolling: touch;
+    }
+    .bn-stat-item { min-width: 70px; }
+    .bn-stat-label { font-size: 0.65rem !important; }
+    .bn-stat-value { font-size: 0.82rem !important; }
+
+    /* Columnas de Streamlit: apilar verticalmente */
+    [data-testid="stHorizontalBlock"] {
+      flex-direction: column !important;
+    }
+    [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+      width: 100% !important;
+      flex: none !important;
+      min-width: 100% !important;
+    }
+
+    /* Botón Actualizar: más grande y fácil de tocar */
+    div[data-testid="stButton"] > button {
+      font-size: 1rem !important;
+      padding: 10px 0 !important;
+      width: 100% !important;
+    }
+
+    /* Panel y tarjetas: padding reducido en móvil */
+    .bn-panel-body { padding: 8px 10px !important; }
+
+    /* Tabla historial: scroll horizontal */
+    [data-testid="stDataFrame"] {
+      overflow-x: auto !important;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    /* Texto de filas de datos más legible */
+    .bn-row, div[style*="font-size:0.78rem"] {
+      font-size: 0.85rem !important;
+    }
+
+    /* Sección titles más visibles */
+    div[style*="font-size:0.7rem"][style*="text-transform:uppercase"] {
+      font-size: 0.78rem !important;
+    }
+
+    /* Expanders con más espacio para dedos */
+    div[data-testid="stExpander"] summary {
+      font-size: 0.95rem !important;
+      padding: 12px 8px !important;
+    }
+
+    /* Ocultar timestamp pequeño — innecesario en móvil */
+    div[style*="font-size:0.65rem"][style*="text-align:right"] {
+      display: none !important;
+    }
+  }
+
+  /* Pantallas muy pequeñas (iPhone SE, etc.) */
+  @media (max-width: 400px) {
+    .bn-price { font-size: 1.75rem !important; }
+    .bn-stats-bar { gap: 12px !important; }
+    .bn-stat-item { min-width: 60px; }
+  }
+
+  /* Gráfico Plotly: altura reducida en móvil */
+  @media (max-width: 768px) {
+    [data-testid="stPlotlyChart"] iframe,
+    [data-testid="stPlotlyChart"] > div {
+      max-height: 360px !important;
+    }
+  }
 </style>
 """, unsafe_allow_html=True)
 

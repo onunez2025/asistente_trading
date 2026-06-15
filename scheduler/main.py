@@ -45,7 +45,7 @@ risk_manager: RiskManager = None
 
 def _initialize() -> None:
     """Inicializa todos los componentes una sola vez al arrancar."""
-    global notifier, broker, risk_manager
+    global notifier, broker, risk_manager, _last_retrain_date
 
     init_db()
 
@@ -67,6 +67,16 @@ def _initialize() -> None:
         risk_cfg=RISK,
         initial_capital=current_capital,
     )
+
+    # Recuperar la fecha del último entrenamiento desde la BD para que
+    # un reinicio del contenedor no dispare un reentrenamiento innecesario.
+    from database.models import ModelMetric, engine as _engine
+    from sqlalchemy.orm import Session
+    with Session(_engine) as s:
+        last_metric = s.query(ModelMetric).order_by(ModelMetric.timestamp.desc()).first()
+        if last_metric and last_metric.timestamp:
+            _last_retrain_date = last_metric.timestamp.date()
+            logger.info(f"Último entrenamiento detectado en BD: {_last_retrain_date}")
 
     logger.info("Bot inicializado correctamente.")
     logger.info(f"Modo: {TRADING['mode'].upper()} | Par: {TRADING['symbol']} | Capital: ${current_capital:,.2f}")
