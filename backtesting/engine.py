@@ -24,11 +24,12 @@ def run_backtest(
     take_profit_pct: float = 0.04,
     max_position_pct: float = 0.15,
     confidence_threshold: float = 0.60,
+    test_split: float = 0.20,
 ) -> dict:
     """
-    Simula la estrategia completa sobre datos históricos con el modelo entrenado.
+    Simula la estrategia completa sobre datos que el modelo NO vio durante el entrenamiento.
+    Usa el último `test_split` % del dataset como datos de prueba fuera de muestra.
     Incluye Stop Loss, Take Profit y gestión de posición.
-    Devuelve métricas completas y genera gráficos.
     """
     if not MODEL_PATH.exists():
         raise FileNotFoundError(
@@ -39,11 +40,18 @@ def run_backtest(
     model = artifact["model"]
     features = artifact["features"]
 
+    # Usar solo el último `test_split` del dataset — datos que el modelo nunca vio
+    split_idx = int(len(df) * (1 - test_split))
+    df = df.iloc[split_idx:].copy()
+    logger.info(
+        f"Backtesting fuera de muestra: {len(df)} filas "
+        f"({df.index[0]} → {df.index[-1]})"
+    )
+
     available = [f for f in features if f in df.columns]
     X = df[available].values
     probas = model.predict_proba(X)
 
-    df = df.copy()
     df["pred_proba"] = probas[:, 1]
     df["pred_signal"] = (df["pred_proba"] >= confidence_threshold).astype(int)
 

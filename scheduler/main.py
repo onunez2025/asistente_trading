@@ -7,6 +7,8 @@ import sys
 from datetime import datetime, date
 from pathlib import Path
 
+import pandas as pd
+
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
@@ -214,15 +216,18 @@ def trading_cycle() -> None:
                     position_value = 0.0
 
         # 6. Obtener datos recientes y generar predicción
+        # Siempre usamos 30 días de historial (≥720 velas) para que los indicadores
+        # técnicos (EMA200, RSI, MACD) se calculen correctamente en la última vela.
+        df_pred = fetch_historical_data(symbol, days=30, interval="1h")
         try:
-            df_live = fetch_latest_candle(symbol, EXCHANGE)
-            if df_live is None or df_live.empty:
-                raise ValueError("Sin datos en tiempo real, usando histórico reciente")
+            df_live_candle = fetch_latest_candle(symbol, EXCHANGE)
+            if df_live_candle is not None and not df_live_candle.empty:
+                df_pred = pd.concat([df_pred, df_live_candle])
+                df_pred = df_pred[~df_pred.index.duplicated(keep="last")]
         except Exception:
-            df_hist = fetch_historical_data(symbol, days=30, interval="1h")
-            df_live = df_hist
+            pass  # el historial reciente ya tiene la última vela completa
 
-        prediction = predict(df_live, threshold=confidence_threshold)
+        prediction = predict(df_pred, threshold=confidence_threshold)
         if not prediction:
             logger.warning("Predicción no disponible. Saltando ciclo.")
         else:
