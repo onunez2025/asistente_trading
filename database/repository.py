@@ -37,8 +37,12 @@ def close_trade(
     trade_id: int,
     close_price: float,
     close_reason: str = "signal",
-    commission_rate: float = 0.001,
+    commission_rate: float = None,
 ) -> Optional[Trade]:
+    if commission_rate is None:
+        from config.settings import EXCHANGE
+        commission_rate = float(EXCHANGE.get("commission", 0.001))
+
     with _session() as s:
         trade = s.query(Trade).filter(Trade.id == trade_id).first()
         if not trade:

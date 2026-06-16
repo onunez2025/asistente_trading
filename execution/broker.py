@@ -127,7 +127,12 @@ class Broker:
                 f"[PAPER] Simulando venta: {quantity:.6f} {symbol} @ {current_price:.4f} | motivo={reason}"
             )
 
-        return close_trade(trade_id, current_price, reason, self.commission)
+        return close_trade(
+            trade_id=trade_id,
+            close_price=current_price,
+            close_reason=reason,
+            commission_rate=self.commission,
+        )
 
     def check_and_manage_open_position(
         self,
