@@ -8,6 +8,8 @@ from database.models import ModelMetric, PortfolioSnapshot, Prediction, Trade, e
 
 logger = logging.getLogger(__name__)
 
+__version__ = "1.1.0"
+
 
 def _session() -> Session:
     return Session(engine)
