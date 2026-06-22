@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+
+  # ── BOT DE TRADING (corre 24/7, ejecuta órdenes cada hora) ────────────────
+  bot:
+    build: .
+    command: python scheduler/main.py
+    env_file: .env
+    environment:
+      - PYTHONPATH=/app
+    volumes:
+      - trading_db:/app/database
+      - trading_models:/app/models/saved
+      - trading_logs:/app/logs
+      - trading_results:/app/backtesting/results
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "from database.models import engine; print('ok')"]
+      interval: 5m
+      timeout: 30s
+      retries: 3
+
+  # ── DASHBOARD WEB (accesible desde navegador y celular) ───────────────────
+  dashboard:
+    build: .
+    command: python -m streamlit run dashboard/app.py
+             --server.port=8501
+             --server.address=0.0.0.0
+             --server.headless=true
+             --server.enableCORS=false
+             --server.enableXsrfProtection=false
+    env_file: .env
+    environment:
+      - PYTHONPATH=/app
+    ports:
+      - "8501:8501"
+    volumes:
+      - trading_db:/app/database
+      - trading_models:/app/models/saved
+      - trading_logs:/app/logs
+      - trading_results:/app/backtesting/results
+    restart: unless-stopped
+    depends_on:
+      - bot
+
+# ── VOLÚMENES PERSISTENTES (sobreviven reinicios del contenedor) ──────────
+volumes:
+  trading_db:
+  trading_models:
+  trading_logs:
+  trading_results:
