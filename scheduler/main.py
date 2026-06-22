@@ -249,7 +249,31 @@ def trading_cycle() -> None:
                 f"| confianza={prediction['probability']:.1%}"
             )
 
-            # 7. Evaluar si se puede abrir posición nueva
+            # 7. Cerrar posición si el modelo predice VENDER
+            if open_trade and prediction["signal"] == 0:
+                closed = broker.close_position(
+                    symbol=symbol,
+                    trade_id=open_trade.id,
+                    quantity=open_trade.quantity,
+                    current_price=current_price,
+                    reason="signal",
+                )
+                if closed:
+                    notifier.notify_trade_closed(
+                        symbol=symbol,
+                        entry=open_trade.price,
+                        exit_price=current_price,
+                        pnl=closed.pnl or 0,
+                        pnl_pct=closed.pnl_pct or 0,
+                        reason="signal",
+                        mode=TRADING["mode"],
+                    )
+                    cash += current_price * open_trade.quantity
+                    position_value = 0.0
+                    open_trade = None
+                    logger.info("Posición cerrada por señal de venta del modelo.")
+
+            # 8. Evaluar si se puede abrir posición nueva
             if not open_trade:
                 decision = risk_manager.evaluate_trade(
                     signal=prediction["signal"],
