@@ -37,9 +37,14 @@ class TelegramNotifier:
 
     def notify_trade_opened(
         self, symbol: str, price: float, quantity: float,
-        sl: float, tp: float, mode: str
+        sl: float, tp: float, mode: str, market_sentiment: str = ""
     ) -> None:
         emoji = "🟡" if mode == "paper" else "🟢"
+        sentiment_map = {"bullish": "📈 Alcista", "neutral": "➡️ Neutral", "bearish": "📉 Bajista"}
+        sentiment_line = (
+            f"\nMercado: {sentiment_map.get(market_sentiment, market_sentiment)}"
+            if market_sentiment else ""
+        )
         msg = (
             f"{emoji} <b>COMPRA EJECUTADA</b> [{mode.upper()}]\n"
             f"Par: <code>{symbol}</code>\n"
@@ -47,6 +52,7 @@ class TelegramNotifier:
             f"Cantidad: {quantity:.6f}\n"
             f"Stop Loss: ${sl:,.4f}\n"
             f"Take Profit: ${tp:,.4f}"
+            f"{sentiment_line}"
         )
         self._send(msg)
 

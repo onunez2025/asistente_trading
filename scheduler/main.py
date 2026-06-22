@@ -340,6 +340,7 @@ def trading_cycle() -> None:
                             sl=decision.stop_loss_price,
                             tp=decision.take_profit_price,
                             mode=TRADING["mode"],
+                            market_sentiment=market_ctx.sentiment,
                         )
                 else:
                     logger.info(f"Operación bloqueada por riesgo: {decision.reason.value}")
