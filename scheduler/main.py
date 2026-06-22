@@ -233,6 +233,17 @@ def trading_cycle() -> None:
         total_value = cash + position_value
         today_pnl = get_today_pnl()
 
+        # 3b. Contexto de mercado via DeepSeek (ajusta umbral dinámicamente)
+        from analysis.deepseek import get_market_context
+        market_ctx = get_market_context()
+        adjusted_threshold = round(confidence_threshold + market_ctx.modifier, 4)
+        adjusted_threshold = max(0.50, min(0.90, adjusted_threshold))
+        logger.info(
+            f"Umbral ajustado: {adjusted_threshold:.0%} "
+            f"(base={confidence_threshold:.0%}, mod={market_ctx.modifier:+.0%}, "
+            f"mercado={market_ctx.sentiment.upper()})"
+        )
+
         # 4. Reseteo diario y actualización del gestor de riesgo
         _reset_daily_state(total_value)
         risk_manager.update_portfolio_state(
@@ -273,7 +284,7 @@ def trading_cycle() -> None:
         except Exception:
             pass  # el historial reciente ya tiene la última vela completa
 
-        prediction = predict(df_pred, threshold=confidence_threshold)
+        prediction = predict(df_pred, threshold=adjusted_threshold)
         if not prediction:
             logger.warning("Predicción no disponible. Saltando ciclo.")
         else:
@@ -311,7 +322,7 @@ def trading_cycle() -> None:
                 decision = risk_manager.evaluate_trade(
                     signal=prediction["signal"],
                     probability=prediction["probability"],
-                    confidence_threshold=confidence_threshold,
+                    confidence_threshold=adjusted_threshold,
                     current_price=current_price,
                     available_capital=cash,
                     has_open_position=False,
