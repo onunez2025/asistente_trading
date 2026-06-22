@@ -14,8 +14,8 @@ from sklearn.model_selection import TimeSeriesSplit
 from lightgbm import LGBMClassifier
 
 from data.features import FEATURE_COLUMNS
-from database.models import ModelMetric, init_db
-from database.repository import save_model_metric
+from db_layer.models import ModelMetric, init_db
+from db_layer.repository import save_model_metric
 
 logger = logging.getLogger(__name__)
 optuna.logging.set_verbosity(optuna.logging.WARNING)

@@ -13,10 +13,10 @@ sys.path.insert(0, str(ROOT))
 
 from datetime import datetime, timedelta
 import yfinance as yf
-from database.models import Trade, PortfolioSnapshot, init_db
-from database.repository import save_trade, save_snapshot, close_trade
+from db_layer.models import Trade, PortfolioSnapshot, init_db
+from db_layer.repository import save_trade, save_snapshot, close_trade
 from sqlalchemy.orm import Session
-from database.models import engine, Trade as TradeModel
+from db_layer.models import engine, Trade as TradeModel
 
 INITIAL_CAPITAL = 1000.0
 POSITION_SIZE   = 0.20   # 20% por operación

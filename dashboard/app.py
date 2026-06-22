@@ -12,8 +12,8 @@ import yfinance as yf
 from datetime import datetime
 
 from config.settings import MODEL, TRADING
-from database.models import init_db
-from database.repository import (
+from db_layer.models import init_db
+from db_layer.repository import (
     get_all_trades,
     get_latest_model_metric,
     get_latest_snapshot,

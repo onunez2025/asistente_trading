@@ -36,7 +36,7 @@ def train_and_backtest():
         from data.features import calculate_features
         from models.trainer import train_model
         from backtesting.engine import run_backtest
-        from database.models import init_db
+        from db_layer.models import init_db
 
         init_db()
 
@@ -108,8 +108,8 @@ def open_dashboard():
 def show_portfolio():
     print("\n[PORTFOLIO] Estado actual:")
     try:
-        from database.models import init_db
-        from database.repository import (
+        from db_layer.models import init_db
+        from db_layer.repository import (
             get_all_trades, get_latest_snapshot, get_today_pnl
         )
         from config.settings import TRADING

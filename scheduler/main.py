@@ -18,8 +18,8 @@ from apscheduler.triggers.cron import CronTrigger
 from config.settings import EXCHANGE, MODEL, RISK, TELEGRAM, TRADING, settings
 from data.fetcher import fetch_historical_data, fetch_latest_candle
 from data.features import calculate_features
-from database.models import PortfolioSnapshot, init_db
-from database.repository import (
+from db_layer.models import PortfolioSnapshot, init_db
+from db_layer.repository import (
     get_latest_snapshot,
     get_open_trade,
     get_today_pnl,
@@ -73,7 +73,7 @@ def _initialize() -> None:
 
     # Recuperar la fecha del último entrenamiento desde la BD para que
     # un reinicio del contenedor no dispare un reentrenamiento innecesario.
-    from database.models import ModelMetric, engine as _engine
+    from db_layer.models import ModelMetric, engine as _engine
     from sqlalchemy.orm import Session
     with Session(_engine) as s:
         last_metric = s.query(ModelMetric).order_by(ModelMetric.timestamp.desc()).first()
@@ -104,11 +104,11 @@ def _maybe_retrain() -> None:
             train_model(df_features, symbol=TRADING["symbol"])
             _last_retrain_date = date.today()
 
-            from database.repository import get_latest_snapshot as _snap
-            from database.models import ModelMetric
+            from db_layer.repository import get_latest_snapshot as _snap
+            from db_layer.models import ModelMetric
             # Notificar por Telegram (últimas métricas)
             from sqlalchemy.orm import Session
-            from database.models import engine
+            from db_layer.models import engine
             with Session(engine) as s:
                 last_metric = s.query(ModelMetric).order_by(
                     ModelMetric.timestamp.desc()
@@ -171,7 +171,7 @@ def sltp_check_cycle() -> None:
 
         exit_reason = broker.check_and_manage_open_position(symbol, risk_manager)
         if exit_reason:
-            from database.repository import get_all_trades
+            from db_layer.repository import get_all_trades
             trades = get_all_trades()
             if trades:
                 last_trade = trades[0]
@@ -258,7 +258,7 @@ def trading_cycle() -> None:
             if exit_reason:
                 closed = get_open_trade(symbol)
                 if not closed:  # Se cerró correctamente
-                    from database.repository import get_all_trades
+                    from db_layer.repository import get_all_trades
                     last_trade = get_all_trades()[0]
                     notifier.notify_trade_closed(
                         symbol=symbol,

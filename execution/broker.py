@@ -4,8 +4,8 @@ from typing import Optional
 
 import ccxt
 
-from database.models import Trade, init_db
-from database.repository import close_trade, get_open_trade, save_trade
+from db_layer.models import Trade, init_db
+from db_layer.repository import close_trade, get_open_trade, save_trade
 from risk.manager import RiskDecision
 
 logger = logging.getLogger(__name__)

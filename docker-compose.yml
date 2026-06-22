@@ -16,7 +16,7 @@ services:
       - trading_results:/app/backtesting/results
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "python", "-c", "from database.models import engine; print('ok')"]
+      test: ["CMD", "python", "-c", "from db_layer.models import engine; print('ok')"]
       interval: 5m
       timeout: 30s
       retries: 3

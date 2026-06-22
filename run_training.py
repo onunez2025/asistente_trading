@@ -10,7 +10,7 @@ from data.fetcher import fetch_historical_data
 from data.features import calculate_features
 from models.trainer import train_model
 from backtesting.engine import run_backtest
-from database.models import init_db
+from db_layer.models import init_db
 
 init_db()
 

@@ -4,7 +4,7 @@ from typing import List, Optional
 
 from sqlalchemy.orm import Session
 
-from database.models import ModelMetric, PortfolioSnapshot, Prediction, Trade, engine
+from db_layer.models import ModelMetric, PortfolioSnapshot, Prediction, Trade, engine
 
 logger = logging.getLogger(__name__)
 
