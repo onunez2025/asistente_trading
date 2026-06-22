@@ -156,6 +156,39 @@ def _save_portfolio_snapshot(
     ))
 
 
+def sltp_check_cycle() -> None:
+    """
+    Verifica SL/TP de la posición abierta cada 5 minutos.
+    No ejecuta predicción ni abre posiciones — solo cierra si corresponde.
+    """
+    if broker is None:
+        return
+
+    symbol = TRADING["symbol"]
+    try:
+        if not get_open_trade(symbol):
+            return
+
+        exit_reason = broker.check_and_manage_open_position(symbol, risk_manager)
+        if exit_reason:
+            from database.repository import get_all_trades
+            trades = get_all_trades()
+            if trades:
+                last_trade = trades[0]
+                notifier.notify_trade_closed(
+                    symbol=symbol,
+                    entry=last_trade.price,
+                    exit_price=last_trade.close_price or 0,
+                    pnl=last_trade.pnl or 0,
+                    pnl_pct=last_trade.pnl_pct or 0,
+                    reason=exit_reason,
+                    mode=TRADING["mode"],
+                )
+            logger.info(f"SL/TP ejecutado fuera del ciclo horario: motivo={exit_reason}")
+    except Exception as exc:
+        logger.error(f"Error en verificación SL/TP: {exc}", exc_info=True)
+
+
 def trading_cycle() -> None:
     """
     Ciclo principal ejecutado cada hora:
@@ -334,7 +367,17 @@ def start_bot() -> None:
         coalesce=True,
     )
 
+    scheduler.add_job(
+        sltp_check_cycle,
+        trigger=CronTrigger(minute="*/5"),
+        id="sltp_check",
+        name="Verificación SL/TP cada 5 minutos",
+        misfire_grace_time=60,
+        coalesce=True,
+    )
+
     logger.info("Bot activo. Próxima ejecución: inicio de la siguiente hora.")
+    logger.info("Verificación SL/TP activa: cada 5 minutos.")
     logger.info("Presiona Ctrl+C para detener el bot.")
 
     try:
