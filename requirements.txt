@@ -32,3 +32,6 @@ python-telegram-bot>=20.0
 # === UTILIDADES ===
 pyyaml>=6.0
 python-dotenv>=1.0.0
+
+# === IA / ANÁLISIS DE MERCADO ===
+openai>=1.0.0

@@ -89,3 +89,4 @@ RISK = settings["risk"]
 MODEL = settings["model"]
 EXCHANGE = settings["exchange"]
 TELEGRAM = settings["telegram"]
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
