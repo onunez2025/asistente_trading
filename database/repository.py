@@ -12,7 +12,7 @@ __version__ = "1.1.0"
 
 
 def _session() -> Session:
-    return Session(engine)
+    return Session(engine, expire_on_commit=False)
 
 
 # ── Trades ──────────────────────────────────────────────────────────────────
