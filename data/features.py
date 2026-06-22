@@ -90,3 +90,51 @@ def calculate_features(df: pd.DataFrame, target_threshold: float = 0.003) -> pd.
     )
 
     return df
+
+
+def calculate_features_inference(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Igual que calculate_features pero sin calcular ni filtrar por target.
+    Usar SOLO para predicción en vivo — la última fila siempre está presente.
+    """
+    df = df.copy()
+
+    close = df["close"]
+    high = df["high"]
+    low = df["low"]
+    volume = df["volume"]
+
+    df["rsi"] = ta.momentum.RSIIndicator(close, window=14).rsi()
+    df["roc_10"] = ta.momentum.ROCIndicator(close, window=10).roc()
+    stoch = ta.momentum.StochRSIIndicator(close, window=14, smooth1=3, smooth2=3)
+    df["stoch_rsi"] = stoch.stochrsi_k()
+
+    df["ema_20"] = ta.trend.EMAIndicator(close, window=20).ema_indicator()
+    df["ema_50"] = ta.trend.EMAIndicator(close, window=50).ema_indicator()
+    df["ema_200"] = ta.trend.EMAIndicator(close, window=200).ema_indicator()
+    df["ema_cross"] = (df["ema_20"] > df["ema_50"]).astype(int)
+    df["price_vs_ema20"] = (close - df["ema_20"]) / df["ema_20"]
+    df["price_vs_ema50"] = (close - df["ema_50"]) / df["ema_50"]
+
+    macd = ta.trend.MACD(close, window_slow=26, window_fast=12, window_sign=9)
+    df["macd"] = macd.macd()
+    df["macd_signal"] = macd.macd_signal()
+    df["macd_hist"] = macd.macd_diff()
+
+    bb = ta.volatility.BollingerBands(close, window=20, window_dev=2)
+    bb_upper = bb.bollinger_hband()
+    bb_lower = bb.bollinger_lband()
+    df["bb_pct"] = (close - bb_lower) / (bb_upper - bb_lower + 1e-10)
+    df["bb_width"] = (bb_upper - bb_lower) / (bb.bollinger_mavg() + 1e-10)
+
+    atr = ta.volatility.AverageTrueRange(high, low, close, window=14).average_true_range()
+    df["atr_pct"] = atr / (close + 1e-10)
+
+    vol_sma = volume.rolling(window=20).mean()
+    df["volume_ratio"] = volume / (vol_sma + 1e-10)
+
+    df["candle_body"] = (close - df["open"]) / (df["open"] + 1e-10)
+    df["candle_range"] = (high - low) / (df["open"] + 1e-10)
+
+    df = df.dropna(subset=FEATURE_COLUMNS)
+    return df

@@ -5,7 +5,7 @@ from typing import Optional
 import joblib
 import pandas as pd
 
-from data.features import FEATURE_COLUMNS, calculate_features
+from data.features import FEATURE_COLUMNS, calculate_features_inference
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ def predict(df_raw: pd.DataFrame, threshold: float = 0.60) -> Optional[dict]:
         model = artifact["model"]
         features = artifact["features"]
 
-        df_features = calculate_features(df_raw)
+        df_features = calculate_features_inference(df_raw)
         if df_features.empty:
             logger.warning("No hay suficientes datos para calcular features.")
             return None
