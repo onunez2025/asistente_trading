@@ -11,10 +11,11 @@ import streamlit as st
 import yfinance as yf
 from datetime import datetime
 
-from config.settings import TRADING
+from config.settings import MODEL, TRADING
 from database.models import init_db
 from database.repository import (
     get_all_trades,
+    get_latest_model_metric,
     get_latest_snapshot,
     get_snapshots_last_days,
     get_today_pnl,
@@ -402,6 +403,39 @@ def load_db_data():
     )
 
 
+@st.cache_data(ttl=300)
+def load_fear_greed():
+    try:
+        import requests as _req
+        r = _req.get("https://api.alternative.me/fng/?limit=1", timeout=8)
+        r.raise_for_status()
+        fng = r.json().get("data", [{}])[0]
+        return int(fng.get("value", 50)), fng.get("value_classification", "Neutral")
+    except Exception:
+        return 50, "Neutral"
+
+
+@st.cache_data(ttl=1800)
+def load_market_context():
+    try:
+        from analysis.deepseek import get_market_context
+        ctx = get_market_context()
+        return {"sentiment": ctx.sentiment, "modifier": ctx.modifier, "reasoning": ctx.reasoning}
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=300)
+def load_model_metrics():
+    try:
+        m = get_latest_model_metric()
+        if m:
+            return {"accuracy": m.accuracy, "f1": m.f1_score, "timestamp": m.timestamp}
+    except Exception:
+        pass
+    return None
+
+
 def build_chart(df: pd.DataFrame):
     if df.empty or len(df) < 5:
         return None
@@ -515,6 +549,9 @@ def build_chart(df: pd.DataFrame):
 # ══════════════════════════════════════════════════════════════════════════════
 df_mkt, price, ch, ch_pct, high_24h, low_24h, vol_24h = get_market_data()
 snapshot, trades, snapshots, today_pnl = load_db_data()
+fear_greed_val, fear_greed_label = load_fear_greed()
+mkt_ctx = load_market_context()
+model_metrics = load_model_metrics()
 
 initial_capital = float(TRADING.get("capital", 1000))
 mode   = TRADING.get("mode", "paper")
@@ -740,6 +777,104 @@ with col_panel:
             f'font-size:0.72rem;font-weight:700;color:#F0B90B;letter-spacing:0.5px">'
             f'📊 POSICIÓN ABIERTA — BTC/USDT</div>'
             f'{pos_rows}</div>',
+            unsafe_allow_html=True,
+        )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# BARRA DE ANÁLISIS: DeepSeek + Fear&Greed + Umbral ML + Modelo IA
+# ══════════════════════════════════════════════════════════════════════════════
+st.markdown("<div style='border-top:1px solid #2B2F36;margin:8px 0 6px 0'></div>",
+            unsafe_allow_html=True)
+
+c_ds, c_fg, c_thr, c_mdl = st.columns(4)
+
+_sent_map = {
+    "bullish": ("📈", "Alcista", "#0ECB81"),
+    "neutral": ("➡️", "Neutral", "#F0B90B"),
+    "bearish": ("📉", "Bajista", "#F6465D"),
+}
+if mkt_ctx:
+    s_icon, s_label, s_color = _sent_map.get(mkt_ctx["sentiment"], ("➡️", "Neutral", "#F0B90B"))
+    s_reason = mkt_ctx["reasoning"]
+    s_reason = s_reason[:52] + "…" if len(s_reason) > 52 else s_reason
+else:
+    s_icon, s_label, s_color = "➡️", "—", "#848E9C"
+    s_reason = "Sin clave DEEPSEEK_API_KEY"
+
+with c_ds:
+    st.markdown(
+        f'<div style="background:#181A20;border:1px solid #2B2F36;border-radius:4px;padding:10px 12px">'
+        f'<div style="font-size:0.63rem;color:#848E9C;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">🧠 Análisis DeepSeek</div>'
+        f'<div style="font-size:1.1rem;font-weight:700;color:{s_color}">{s_icon} {s_label}</div>'
+        f'<div style="font-size:0.63rem;color:#848E9C;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-style:italic">{s_reason}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+if fear_greed_val >= 75:
+    fg_color = "#F6465D"
+elif fear_greed_val >= 55:
+    fg_color = "#F0B90B"
+elif fear_greed_val >= 45:
+    fg_color = "#EAECEF"
+elif fear_greed_val >= 25:
+    fg_color = "#8B72FF"
+else:
+    fg_color = "#0ECB81"
+
+with c_fg:
+    st.markdown(
+        f'<div style="background:#181A20;border:1px solid #2B2F36;border-radius:4px;padding:10px 12px">'
+        f'<div style="font-size:0.63rem;color:#848E9C;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">😨 Fear &amp; Greed</div>'
+        f'<div style="font-size:1.1rem;font-weight:700;color:{fg_color}">{fear_greed_val}/100</div>'
+        f'<div style="font-size:0.63rem;color:{fg_color};margin-top:3px">{fear_greed_label}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+_base_thr = MODEL.get("prediction_threshold", 0.60)
+if mkt_ctx:
+    _adj_thr = round(_base_thr + mkt_ctx["modifier"], 4)
+    _adj_thr = max(0.50, min(0.90, _adj_thr))
+    _mod_str = f"{mkt_ctx['modifier']:+.0%}"
+    _mod_color = "#0ECB81" if mkt_ctx["modifier"] < 0 else ("#F6465D" if mkt_ctx["modifier"] > 0 else "#848E9C")
+else:
+    _adj_thr = _base_thr
+    _mod_str = "+0%"
+    _mod_color = "#848E9C"
+
+with c_thr:
+    st.markdown(
+        f'<div style="background:#181A20;border:1px solid #2B2F36;border-radius:4px;padding:10px 12px">'
+        f'<div style="font-size:0.63rem;color:#848E9C;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">🎯 Umbral ML</div>'
+        f'<div style="font-size:1.1rem;font-weight:700;color:#EAECEF">{_adj_thr:.0%}</div>'
+        f'<div style="font-size:0.63rem;color:#848E9C;margin-top:3px">Base {_base_thr:.0%} <span style="color:{_mod_color}">{_mod_str} DeepSeek</span></div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+with c_mdl:
+    if model_metrics:
+        _acc = model_metrics["accuracy"]
+        _f1 = model_metrics["f1"]
+        _ts = model_metrics["timestamp"]
+        _days = (datetime.now() - _ts).days if _ts else "?"
+        _acc_color = "#0ECB81" if _acc >= 0.65 else ("#F0B90B" if _acc >= 0.55 else "#F6465D")
+        st.markdown(
+            f'<div style="background:#181A20;border:1px solid #2B2F36;border-radius:4px;padding:10px 12px">'
+            f'<div style="font-size:0.63rem;color:#848E9C;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">🤖 Modelo IA</div>'
+            f'<div style="font-size:1.1rem;font-weight:700;color:{_acc_color}">{_acc:.1%} Acc</div>'
+            f'<div style="font-size:0.63rem;color:#848E9C;margin-top:3px">F1 {_f1:.3f} &nbsp;·&nbsp; hace {_days}d</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            f'<div style="background:#181A20;border:1px solid #2B2F36;border-radius:4px;padding:10px 12px">'
+            f'<div style="font-size:0.63rem;color:#848E9C;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">🤖 Modelo IA</div>'
+            f'<div style="font-size:1.1rem;font-weight:700;color:#F0B90B">Sin datos</div>'
+            f'<div style="font-size:0.63rem;color:#848E9C;margin-top:3px">Entrena el modelo primero</div>'
+            f'</div>',
             unsafe_allow_html=True,
         )
 

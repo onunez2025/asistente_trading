@@ -144,3 +144,12 @@ def save_model_metric(metric: ModelMetric) -> ModelMetric:
             f"f1={metric.f1_score:.3f} | baseline={metric.baseline_accuracy:.3f}"
         )
         return metric
+
+
+def get_latest_model_metric() -> Optional[ModelMetric]:
+    with _session() as s:
+        return (
+            s.query(ModelMetric)
+            .order_by(ModelMetric.timestamp.desc())
+            .first()
+        )
