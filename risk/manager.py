@@ -30,7 +30,7 @@ class RiskManager:
     Es la última barrera antes de enviar una orden al exchange.
     """
 
-    def __init__(self, risk_cfg: dict, initial_capital: float):
+    def __init__(self, risk_cfg: dict, initial_capital: float, peak_value: float = None):
         self.max_position_size = risk_cfg["max_position_size"]   # 0.15 = 15%
         self.stop_loss_pct = risk_cfg["stop_loss"]               # 0.02 = 2%
         self.take_profit_pct = risk_cfg["take_profit"]           # 0.04 = 4%
@@ -38,7 +38,7 @@ class RiskManager:
         self.max_drawdown = risk_cfg["max_drawdown"]             # 0.20 = 20%
 
         self.initial_capital = initial_capital
-        self.peak_value = initial_capital
+        self.peak_value = peak_value if peak_value is not None else initial_capital
         self._daily_loss_triggered = False
         self._drawdown_triggered = False
 

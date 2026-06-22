@@ -62,11 +62,14 @@ def _initialize() -> None:
 
     snapshot = get_latest_snapshot()
     current_capital = snapshot.total_value if snapshot else TRADING["capital"]
+    saved_peak = snapshot.peak_value if snapshot else current_capital
 
     risk_manager = RiskManager(
         risk_cfg=RISK,
         initial_capital=current_capital,
+        peak_value=saved_peak,
     )
+    logger.info(f"Peak value restaurado desde BD: ${saved_peak:,.2f}")
 
     # Recuperar la fecha del último entrenamiento desde la BD para que
     # un reinicio del contenedor no dispare un reentrenamiento innecesario.
