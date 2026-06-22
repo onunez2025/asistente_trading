@@ -82,6 +82,16 @@ class ModelMetric(Base):
     symbol = Column(String)
 
 
+from sqlalchemy import text
+
 def init_db() -> None:
     """Crea todas las tablas si no existen."""
     Base.metadata.create_all(engine)
+    
+    # SQLite no añade columnas a tablas existentes automáticamente.
+    # Intentamos añadir commission_paid para que no rompa al actualizar.
+    with engine.begin() as conn:
+        try:
+            conn.execute(text("ALTER TABLE trades ADD COLUMN commission_paid FLOAT DEFAULT 0.0"))
+        except Exception:
+            pass  # La columna ya existe o la tabla aún no tiene datos problemáticos

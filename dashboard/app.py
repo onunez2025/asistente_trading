@@ -644,7 +644,7 @@ with hC:
 
 with hD:
     st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-    if st.button("⟳  Actualizar", use_container_width=True):
+    if st.button("⟳  Actualizar", width="stretch"):
         st.cache_data.clear()
         st.rerun()
     st.markdown(
@@ -664,7 +664,7 @@ col_chart, col_panel = st.columns([70, 30])
 with col_chart:
     fig = build_chart(df_mkt)
     if fig:
-        st.plotly_chart(fig, use_container_width=True, config={
+        st.plotly_chart(fig, width="stretch", config={
             "displayModeBar": True,
             "displaylogo": False,
             "modeBarButtonsToRemove": ["lasso2d", "select2d", "autoScale2d"],
@@ -977,7 +977,7 @@ with col_eq:
             hoverlabel=dict(bgcolor="#1E2026", font_color="#EAECEF",
                             bordercolor="#2B2F36"),
         )
-        st.plotly_chart(fig_eq, use_container_width=True,
+        st.plotly_chart(fig_eq, width="stretch",
                         config={"displayModeBar": False})
     else:
         st.markdown(
@@ -1024,7 +1024,7 @@ if trades:
 
     st.dataframe(
         pd.DataFrame(rows),
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         height=260,
         column_config={
@@ -1051,7 +1051,7 @@ with c_bt:
     with st.expander("📊 Resultado del Backtesting"):
         img = ROOT / "backtesting" / "results" / "backtest_result.png"
         if img.exists():
-            st.image(str(img), use_container_width=True)
+            st.image(str(img), width="stretch")
         else:
             st.info("Entrena el modelo para ver el backtest.")
 
