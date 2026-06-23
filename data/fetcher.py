@@ -34,8 +34,8 @@ def fetch_historical_data(
 
     logger.info(f"Descargando datos históricos: {ticker} | {days} días | intervalo {interval}")
 
-    # yfinance limita datos de 1h a ventanas de ~60 días por request
-    chunk_days = 58 if interval == "1h" else days
+    # yfinance limita datos de 1h y 15m a ventanas de ~60 días por request
+    chunk_days = 58 if interval in ("1h", "15m", "30m", "5m") else days
     chunks = []
     chunk_end = end
 
