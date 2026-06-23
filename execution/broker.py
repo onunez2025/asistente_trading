@@ -5,7 +5,7 @@ from typing import Optional
 import ccxt
 
 from db_layer.models import Trade, init_db
-from db_layer.repository import close_trade, get_open_trade, save_trade
+from db_layer.repository import close_trade, get_open_trade, save_trade, update_trade_trailing
 from risk.manager import RiskDecision
 
 logger = logging.getLogger(__name__)
@@ -13,8 +13,8 @@ logger = logging.getLogger(__name__)
 
 class Broker:
     """
-    Capa de abstracción sobre el exchange (Binance testnet o live).
-    En modo paper, simula las órdenes localmente sin enviar nada al exchange.
+    Capa de abstracción sobre el exchange.
+    En modo paper, simula órdenes localmente y usa CCXT public API para precios en tiempo real.
     En modo live, envía órdenes reales a través de ccxt.
     """
 
@@ -23,9 +23,12 @@ class Broker:
         self.exchange_cfg = exchange_cfg
         self.commission = float(exchange_cfg.get("commission", 0.001))
         self._exchange: Optional[ccxt.Exchange] = None
+        self._public_exchange: Optional[ccxt.Exchange] = None
 
         if mode == "live":
             self._exchange = self._connect()
+
+        self._public_exchange = self._connect_public()
 
         logger.info(f"Broker iniciado en modo: {mode.upper()} | comisión: {self.commission:.2%}")
         init_db()
@@ -40,28 +43,40 @@ class Broker:
         })
         if self.exchange_cfg.get("testnet", True):
             exchange.set_sandbox_mode(True)
-        logger.info("Conectado al exchange.")
+        logger.info("Conectado al exchange (autenticado).")
         return exchange
 
-    def get_current_price(self, symbol: str) -> Optional[float]:
-        """Obtiene el precio actual del activo."""
+    def _connect_public(self) -> Optional[ccxt.Exchange]:
+        """Conexión pública sin API keys — para precios en paper mode."""
         try:
-            if self.mode == "paper" or self._exchange is None:
-                # En paper mode sin exchange conectado, usamos yfinance como fallback
-                import yfinance as yf
-                from data.fetcher import _SYMBOL_MAP
-                ticker = _SYMBOL_MAP.get(symbol, symbol.replace("/", "-").replace("USDT", "USD"))
-                data = yf.download(ticker, period="1d", interval="1m", progress=False, auto_adjust=True)
-                if data is not None and not data.empty:
-                    return float(data["Close"].squeeze().iloc[-1])
-                return None
-
-            ticker = self._exchange.fetch_ticker(symbol)
-            return float(ticker["last"])
-
+            exchange_class = getattr(ccxt, self.exchange_cfg.get("name", "binance"))
+            return exchange_class({"enableRateLimit": True})
         except Exception as exc:
-            logger.error(f"Error obteniendo precio de {symbol}: {exc}")
+            logger.warning(f"No se pudo crear conexión pública CCXT: {exc}")
             return None
+
+    def get_current_price(self, symbol: str) -> Optional[float]:
+        """Obtiene el precio actual. CCXT público primero, fallback a yfinance."""
+        try:
+            if self._public_exchange:
+                ticker = self._public_exchange.fetch_ticker(symbol)
+                price = float(ticker["last"])
+                logger.debug(f"Precio CCXT público {symbol}: {price:.4f}")
+                return price
+        except Exception as exc:
+            logger.warning(f"CCXT público falló para {symbol}: {exc}. Fallback a yfinance.")
+
+        try:
+            import yfinance as yf
+            from data.fetcher import _SYMBOL_MAP
+            ticker = _SYMBOL_MAP.get(symbol, symbol.replace("/", "-").replace("USDT", "USD"))
+            data = yf.download(ticker, period="1d", interval="1m", progress=False, auto_adjust=True)
+            if data is not None and not data.empty:
+                return float(data["Close"].squeeze().iloc[-1])
+        except Exception as exc:
+            logger.error(f"Fallback yfinance también falló para {symbol}: {exc}")
+
+        return None
 
     def open_position(
         self,
@@ -69,7 +84,6 @@ class Broker:
         decision: RiskDecision,
         current_price: float,
     ) -> Optional[Trade]:
-        """Abre una posición de compra."""
         quantity = round(decision.position_size_usd / current_price, 8)
 
         if self.mode == "live" and self._exchange:
@@ -87,7 +101,6 @@ class Broker:
                 f"= ${decision.position_size_usd:.2f}"
             )
 
-        # Comisión de compra descontada del capital
         commission_open = round(decision.position_size_usd * self.commission, 6)
         logger.info(f"Comisión de compra: ${commission_open:.4f}")
 
@@ -102,9 +115,10 @@ class Broker:
             take_profit=decision.take_profit_price,
             is_open=True,
             commission_paid=commission_open,
+            peak_price=fill_price,
+            trailing_active=False,
         )
-        saved = save_trade(trade)
-        return saved
+        return save_trade(trade)
 
     def close_position(
         self,
@@ -114,7 +128,6 @@ class Broker:
         current_price: float,
         reason: str = "signal",
     ) -> Optional[Trade]:
-        """Cierra una posición abierta."""
         if self.mode == "live" and self._exchange:
             try:
                 self._exchange.create_market_sell_order(symbol, quantity)
@@ -140,8 +153,8 @@ class Broker:
         risk_manager,
     ) -> Optional[str]:
         """
-        Revisa si hay posición abierta y aplica SL/TP si corresponde.
-        Retorna el motivo de cierre o None si sigue abierta.
+        Revisa posición abierta. Aplica trailing stop primero, luego SL/TP fijo.
+        Actualiza SL y peak_price en DB si el trailing los modifica.
         """
         trade = get_open_trade(symbol)
         if not trade:
@@ -151,10 +164,30 @@ class Broker:
         if not current_price:
             return None
 
+        peak = trade.peak_price if trade.peak_price else trade.price
+        trailing_active = bool(trade.trailing_active)
+
+        exit_reason, new_sl, new_peak, trailing_now = risk_manager.apply_trailing_stop(
+            current_price=current_price,
+            entry_price=trade.price,
+            current_sl=trade.stop_loss,
+            peak_price=peak,
+            trailing_active=trailing_active,
+        )
+
+        # Persistir cambios en DB si algo cambió
+        if new_sl != trade.stop_loss or new_peak != peak or trailing_now != trailing_active:
+            update_trade_trailing(trade.id, new_sl, new_peak, trailing_now)
+
+        if exit_reason:
+            self.close_position(symbol, trade.id, trade.quantity, current_price, exit_reason)
+            return exit_reason
+
+        # Verificar SL/TP normales con el SL posiblemente actualizado por trailing
         exit_reason = risk_manager.check_exit_conditions(
             current_price=current_price,
             entry_price=trade.price,
-            stop_loss_price=trade.stop_loss,
+            stop_loss_price=new_sl,
             take_profit_price=trade.take_profit,
         )
 
@@ -163,8 +196,10 @@ class Broker:
             return exit_reason
 
         unrealized_pnl_pct = (current_price / trade.price - 1) * 100
+        trailing_str = " | TRAILING ACTIVO" if trailing_now else ""
         logger.info(
             f"Posición abierta: {symbol} @ {trade.price:.4f} | "
-            f"actual={current_price:.4f} | PnL no realizado={unrealized_pnl_pct:+.2f}%"
+            f"actual={current_price:.4f} | PnL={unrealized_pnl_pct:+.2f}% | "
+            f"SL={new_sl:.4f}{trailing_str}"
         )
         return None
