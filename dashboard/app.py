@@ -1,4 +1,6 @@
 import sys
+import os
+import math
 from pathlib import Path
 
 ROOT = Path(__file__).parent.parent
@@ -9,9 +11,9 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
 import yfinance as yf
-from datetime import datetime
+from datetime import datetime, timezone
 
-from config.settings import MODEL, TRADING
+from config.settings import EXCHANGE, MODEL, TRADING
 from db_layer.models import init_db
 from db_layer.repository import (
     get_all_trades,
@@ -19,6 +21,8 @@ from db_layer.repository import (
     get_latest_snapshot,
     get_snapshots_last_days,
     get_today_pnl,
+    close_trade,
+    get_open_trade,
 )
 from models.predictor import is_model_trained
 
@@ -29,6 +33,37 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
+
+# ── Auto-refresh cada 30 segundos ──────────────────────────────────────────────
+try:
+    from streamlit_autorefresh import st_autorefresh
+    st_autorefresh(interval=30_000, key="dashboard_refresh")
+except ImportError:
+    pass
+
+# ── Auth gate (solo si DASHBOARD_PASSWORD está configurado) ────────────────────
+_pwd_required = os.environ.get("DASHBOARD_PASSWORD", "")
+if _pwd_required:
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+    if not st.session_state.authenticated:
+        st.markdown(
+            "<div style='max-width:360px;margin:80px auto;padding:32px;"
+            "background:#181A20;border:1px solid #2B2F36;border-radius:8px;text-align:center'>"
+            "<div style='font-size:1.4rem;font-weight:900;color:#F0B90B;margin-bottom:6px'>"
+            "AsistenteTrading</div>"
+            "<div style='color:#848E9C;font-size:0.82rem;margin-bottom:20px'>Acceso restringido</div>",
+            unsafe_allow_html=True,
+        )
+        pwd_input = st.text_input("Contraseña", type="password", label_visibility="collapsed",
+                                  placeholder="Contraseña del dashboard")
+        if st.button("Entrar", use_container_width=True):
+            if pwd_input == _pwd_required:
+                st.session_state.authenticated = True
+                st.rerun()
+            else:
+                st.error("Contraseña incorrecta")
+        st.stop()
 
 # ── CSS estilo Binance ──────────────────────────────────────────────────────────
 st.markdown("""
@@ -434,6 +469,67 @@ def load_model_metrics():
     except Exception:
         pass
     return None
+
+
+def compute_investor_metrics(trades: list, snapshots: list, initial_capital: float) -> dict:
+    """Calcula métricas de rendimiento para presentación a inversores."""
+    closed = [t for t in trades if not t.is_open and t.pnl is not None]
+
+    if not closed:
+        return {
+            "win_rate": 0.0, "profit_factor": 0.0, "sharpe": 0.0,
+            "annualized_return": 0.0, "max_drawdown": 0.0,
+            "total_trades": 0, "winning_trades": 0,
+        }
+
+    wins = [t.pnl for t in closed if t.pnl > 0]
+    losses = [abs(t.pnl) for t in closed if t.pnl <= 0]
+
+    win_rate = len(wins) / len(closed) * 100
+    profit_factor = sum(wins) / sum(losses) if losses and sum(losses) > 0 else float("inf")
+
+    # Sharpe ratio anualizado con factor √365 (crypto opera 24/7)
+    returns = [t.pnl_pct / 100 for t in closed if t.pnl_pct is not None]
+    sharpe = 0.0
+    if len(returns) >= 2:
+        mean_r = sum(returns) / len(returns)
+        std_r = math.sqrt(sum((r - mean_r) ** 2 for r in returns) / (len(returns) - 1))
+        if std_r > 0:
+            sharpe = round(mean_r / std_r * math.sqrt(365), 2)
+
+    # Retorno anualizado
+    annualized_return = 0.0
+    if snapshots and initial_capital > 0:
+        vals = sorted(snapshots, key=lambda s: s.timestamp if s.timestamp else datetime.min)
+        if len(vals) >= 2:
+            first_ts = vals[0].timestamp
+            last_ts = vals[-1].timestamp
+            if first_ts and last_ts and last_ts > first_ts:
+                days = (last_ts - first_ts).total_seconds() / 86400
+                total_r = (vals[-1].total_value / initial_capital) - 1
+                if days > 0:
+                    annualized_return = ((1 + total_r) ** (365 / days) - 1) * 100
+
+    # Max drawdown
+    max_dd = 0.0
+    if snapshots:
+        vals_sorted = sorted(snapshots, key=lambda s: s.timestamp if s.timestamp else datetime.min)
+        peak = initial_capital
+        for s in vals_sorted:
+            tv = s.total_value or initial_capital
+            peak = max(peak, tv)
+            dd = (peak - tv) / peak * 100 if peak > 0 else 0
+            max_dd = max(max_dd, dd)
+
+    return {
+        "win_rate": round(win_rate, 1),
+        "profit_factor": round(profit_factor, 2) if profit_factor != float("inf") else 99.0,
+        "sharpe": sharpe,
+        "annualized_return": round(annualized_return, 1),
+        "max_drawdown": round(max_dd, 1),
+        "total_trades": len(closed),
+        "winning_trades": len(wins),
+    }
 
 
 def build_chart(df: pd.DataFrame):
@@ -1099,6 +1195,139 @@ with st.expander("📖 ¿Qué significa cada número? — Glosario completo"):
 | **LIVE** 🔴 | Dinero real. Solo activar cuando el bot lleve meses de simulación exitosa |
 | **Comisión** | 0.1% que cobra Binance por cada compra + 0.1% por cada venta (0.2% total por operación) |
 """)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PANEL PARA INVERSORES
+# ══════════════════════════════════════════════════════════════════════════════
+st.markdown(
+    "<div style='border-top:1px solid #2B2F36;margin:14px 0 0 0'></div>"
+    "<div style='font-size:0.7rem;font-weight:700;color:#848E9C;text-transform:uppercase;"
+    "letter-spacing:1.5px;padding:8px 14px;background:#1E2026;border-top:1px solid #2B2F36;"
+    "border-bottom:1px solid #2B2F36;margin-bottom:8px'>📈 Métricas para Inversores</div>",
+    unsafe_allow_html=True,
+)
+
+_inv_snapshots = get_snapshots_last_days(90)
+_inv_metrics = compute_investor_metrics(trades, _inv_snapshots, TRADING["capital"])
+
+_im1, _im2, _im3, _im4, _im5, _im6 = st.columns(6)
+_metric_cards = [
+    (_im1, "Win Rate", f"{_inv_metrics['win_rate']:.1f}%",
+     f"{_inv_metrics['winning_trades']}/{_inv_metrics['total_trades']} ops",
+     _inv_metrics['win_rate'] >= 50),
+    (_im2, "Profit Factor", f"{_inv_metrics['profit_factor']:.2f}x",
+     ">1.0 = rentable",
+     _inv_metrics['profit_factor'] >= 1.0),
+    (_im3, "Sharpe Ratio", f"{_inv_metrics['sharpe']:.2f}",
+     ">1.0 = bueno",
+     _inv_metrics['sharpe'] >= 1.0),
+    (_im4, "Ret. Anualiz.", f"{_inv_metrics['annualized_return']:+.1f}%",
+     "proyección anual",
+     _inv_metrics['annualized_return'] >= 0),
+    (_im5, "Max Drawdown", f"-{_inv_metrics['max_drawdown']:.1f}%",
+     "caída máxima histórica",
+     _inv_metrics['max_drawdown'] < 15),
+    (_im6, "Operaciones", str(_inv_metrics['total_trades']),
+     "trades cerrados",
+     True),
+]
+
+for col, label, val, sub, is_pos in _metric_cards:
+    _color = "#0ECB81" if is_pos else "#F6465D"
+    with col:
+        st.markdown(
+            f"<div class='bn-metric'>"
+            f"<div class='bn-metric-label'>{label}</div>"
+            f"<div class='bn-metric-value' style='color:{_color}'>{val}</div>"
+            f"<div class='bn-metric-sub'>{sub}</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+# ── Countdown al próximo ciclo 15m ────────────────────────────────────────────
+_now = datetime.now()
+_mins_elapsed = _now.minute % 15
+_secs_elapsed = _now.second
+_total_secs_left = (14 - _mins_elapsed) * 60 + (60 - _secs_elapsed)
+_m_left = _total_secs_left // 60
+_s_left = _total_secs_left % 60
+
+st.markdown(
+    f"<div style='text-align:center;color:#848E9C;font-size:0.72rem;margin:8px 0 4px 0'>"
+    f"⏱ Próximo ciclo de trading en <b style='color:#F0B90B'>{_m_left:02d}:{_s_left:02d}</b>"
+    f" &nbsp;·&nbsp; Actualización automática cada 30 segundos</div>",
+    unsafe_allow_html=True,
+)
+
+# ── Controles operativos ───────────────────────────────────────────────────────
+_ctrl_col1, _ctrl_col2, _ctrl_col3 = st.columns([2, 1, 1])
+
+with _ctrl_col1:
+    if trades:
+        _closed_trades = [t for t in trades if not t.is_open and t.pnl_pct is not None]
+        if _closed_trades:
+            _csv_rows = []
+            for t in sorted(_closed_trades, key=lambda x: x.timestamp or datetime.min, reverse=True):
+                _csv_rows.append({
+                    "Fecha": t.timestamp.strftime("%Y-%m-%d %H:%M") if t.timestamp else "",
+                    "Par": t.symbol,
+                    "Entrada USD": t.price,
+                    "Salida USD": t.close_price or "",
+                    "Cantidad BTC": t.quantity,
+                    "PnL USD": t.pnl or 0,
+                    "PnL %": t.pnl_pct or 0,
+                    "Comision USD": t.commission_paid or 0,
+                    "Motivo Cierre": t.close_reason or "",
+                    "Modo": t.mode or "paper",
+                })
+            _csv_df = pd.DataFrame(_csv_rows)
+            st.download_button(
+                label="📥 Exportar historial CSV",
+                data=_csv_df.to_csv(index=False).encode("utf-8"),
+                file_name=f"asistente_trading_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+
+with _ctrl_col3:
+    if "emergency_confirm" not in st.session_state:
+        st.session_state.emergency_confirm = False
+
+    if not st.session_state.emergency_confirm:
+        if st.button("🚨 Cerrar posición", use_container_width=True, type="secondary"):
+            st.session_state.emergency_confirm = True
+            st.rerun()
+    else:
+        st.warning("¿Confirmar cierre de emergencia?")
+        _ec1, _ec2 = st.columns(2)
+        with _ec1:
+            if st.button("✅ Confirmar", use_container_width=True):
+                _open = get_open_trade(TRADING["symbol"])
+                if _open:
+                    _price = _open.price
+                    try:
+                        import ccxt
+                        from config.settings import EXCHANGE
+                        _pub = getattr(ccxt, EXCHANGE.get("name", "binance"))({"enableRateLimit": True})
+                        _ticker = _pub.fetch_ticker(TRADING["symbol"])
+                        _price = float(_ticker["last"])
+                    except Exception:
+                        pass
+                    close_trade(
+                        trade_id=_open.id,
+                        close_price=_price,
+                        close_reason="manual",
+                        commission_rate=EXCHANGE.get("commission", 0.001),
+                    )
+                    st.success(f"Posición cerrada @ ${_price:,.2f}")
+                else:
+                    st.info("No hay posición abierta.")
+                st.session_state.emergency_confirm = False
+                st.rerun()
+        with _ec2:
+            if st.button("❌ Cancelar", use_container_width=True):
+                st.session_state.emergency_confirm = False
+                st.rerun()
 
 # ── Footer estilo Binance ──────────────────────────────────────────────────────
 st.markdown(
