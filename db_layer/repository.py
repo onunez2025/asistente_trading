@@ -75,6 +75,22 @@ def close_trade(
         return trade
 
 
+def update_trade_trailing(
+    trade_id: int,
+    new_sl: float,
+    new_peak: float,
+    trailing_active: bool,
+) -> None:
+    """Actualiza SL, precio pico y estado de trailing de una posición abierta."""
+    with _session() as s:
+        trade = s.query(Trade).filter(Trade.id == trade_id).first()
+        if trade:
+            trade.stop_loss = round(new_sl, 6)
+            trade.peak_price = round(new_peak, 6)
+            trade.trailing_active = trailing_active
+            s.commit()
+
+
 def get_all_trades() -> List[Trade]:
     with _session() as s:
         return s.query(Trade).order_by(Trade.timestamp.desc()).all()

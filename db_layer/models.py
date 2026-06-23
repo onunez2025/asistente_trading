@@ -34,6 +34,8 @@ class Trade(Base):
     pnl = Column(Float, nullable=True)           # Ganancia/Pérdida en USD (después de comisiones)
     pnl_pct = Column(Float, nullable=True)       # Ganancia/Pérdida en %
     commission_paid = Column(Float, default=0.0) # Comisión total pagada en USD (compra + venta)
+    peak_price = Column(Float, nullable=True)         # Precio máximo alcanzado (trailing stop)
+    trailing_active = Column(Boolean, default=False)   # True cuando trailing dinámico está activo
 
     def __repr__(self):
         return f"<Trade {self.side} {self.symbol} @ {self.price:.2f} | PnL: {self.pnl}>"
@@ -91,7 +93,12 @@ def init_db() -> None:
     # SQLite no añade columnas a tablas existentes automáticamente.
     # Intentamos añadir commission_paid para que no rompa al actualizar.
     with engine.begin() as conn:
-        try:
-            conn.execute(text("ALTER TABLE trades ADD COLUMN commission_paid FLOAT DEFAULT 0.0"))
-        except Exception:
-            pass  # La columna ya existe o la tabla aún no tiene datos problemáticos
+        for ddl in [
+            "ALTER TABLE trades ADD COLUMN commission_paid FLOAT DEFAULT 0.0",
+            "ALTER TABLE trades ADD COLUMN peak_price FLOAT",
+            "ALTER TABLE trades ADD COLUMN trailing_active BOOLEAN DEFAULT 0",
+        ]:
+            try:
+                conn.execute(text(ddl))
+            except Exception:
+                pass  # Columna ya existe
