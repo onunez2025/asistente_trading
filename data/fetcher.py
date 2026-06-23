@@ -120,3 +120,49 @@ def fetch_latest_candle(
         logger.error(f"Error inesperado obteniendo última vela: {exc}")
 
     return None
+
+
+def fetch_higher_tf_bias(symbol: str) -> bool:
+    """
+    Retorna True si la tendencia en 4h es alcista (EMA20 > EMA50).
+    En caso de error retorna True para no bloquear operaciones por fallo de datos.
+    """
+    ticker = _SYMBOL_MAP.get(symbol, symbol.replace("/", "-").replace("USDT", "USD"))
+    try:
+        raw = yf.download(
+            ticker,
+            period="30d",
+            interval="1h",
+            progress=False,
+            auto_adjust=True,
+            multi_level_index=False,
+        )
+        if raw is None or raw.empty or len(raw) < 50:
+            logger.warning(f"Datos 4h insuficientes para {symbol}, bias=True por defecto")
+            return True
+
+        df_4h = raw.resample("4h").agg({
+            "Open": "first",
+            "High": "max",
+            "Low": "min",
+            "Close": "last",
+            "Volume": "sum",
+        }).dropna()
+
+        if len(df_4h) < 50:
+            return True
+
+        close_4h = df_4h["Close"]
+        ema20 = close_4h.ewm(span=20, adjust=False).mean()
+        ema50 = close_4h.ewm(span=50, adjust=False).mean()
+
+        bullish = bool(ema20.iloc[-1] > ema50.iloc[-1])
+        logger.info(
+            f"Bias 4h {symbol}: EMA20={ema20.iloc[-1]:.2f} {'>' if bullish else '<='} "
+            f"EMA50={ema50.iloc[-1]:.2f} → {'ALCISTA' if bullish else 'BAJISTA'}"
+        )
+        return bullish
+
+    except Exception as exc:
+        logger.warning(f"Error calculando bias 4h para {symbol}: {exc}. bias=True por defecto")
+        return True
