@@ -1,6 +1,6 @@
 """
-Loop principal del bot. Corre cada hora automáticamente usando APScheduler.
-Orquesta todos los módulos: datos → predicción → riesgo → ejecución → registro.
+Loop principal del bot — ciclo de 15 minutos.
+Reentrenamiento en job separado a las 02:30 AM (no bloquea el ciclo de trading).
 """
 import logging
 import sys
@@ -16,8 +16,8 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from config.settings import EXCHANGE, MODEL, RISK, TELEGRAM, TRADING, settings
-from data.fetcher import fetch_historical_data, fetch_latest_candle
-from data.features import calculate_features
+from data.fetcher import fetch_historical_data, fetch_latest_candle, fetch_higher_tf_bias
+from data.features import calculate_features, calculate_features_inference
 from db_layer.models import PortfolioSnapshot, init_db
 from db_layer.repository import (
     get_latest_snapshot,
@@ -33,7 +33,6 @@ from risk.manager import RiskManager
 
 logger = logging.getLogger(__name__)
 
-# ── Estado global del bot ──────────────────────────────────────────────────────
 _last_retrain_date: date = date(2000, 1, 1)
 _daily_reset_date: date = date(2000, 1, 1)
 _initial_daily_value: float = 0.0
@@ -44,7 +43,6 @@ risk_manager: RiskManager = None
 
 
 def _initialize() -> None:
-    """Inicializa todos los componentes una sola vez al arrancar."""
     global notifier, broker, risk_manager, _last_retrain_date
 
     init_db()
@@ -55,10 +53,7 @@ def _initialize() -> None:
         enabled=TELEGRAM.get("enabled", False),
     )
 
-    broker = Broker(
-        exchange_cfg=EXCHANGE,
-        mode=TRADING["mode"],
-    )
+    broker = Broker(exchange_cfg=EXCHANGE, mode=TRADING["mode"])
 
     snapshot = get_latest_snapshot()
     current_capital = snapshot.total_value if snapshot else TRADING["capital"]
@@ -71,8 +66,6 @@ def _initialize() -> None:
     )
     logger.info(f"Peak value restaurado desde BD: ${saved_peak:,.2f}")
 
-    # Recuperar la fecha del último entrenamiento desde la BD para que
-    # un reinicio del contenedor no dispare un reentrenamiento innecesario.
     from db_layer.models import ModelMetric, engine as _engine
     from sqlalchemy.orm import Session
     with Session(_engine) as s:
@@ -82,49 +75,50 @@ def _initialize() -> None:
             logger.info(f"Último entrenamiento detectado en BD: {_last_retrain_date}")
 
     logger.info("Bot inicializado correctamente.")
-    logger.info(f"Modo: {TRADING['mode'].upper()} | Par: {TRADING['symbol']} | Capital: ${current_capital:,.2f}")
+    logger.info(
+        f"Modo: {TRADING['mode'].upper()} | Par: {TRADING['symbol']} | "
+        f"Capital: ${current_capital:,.2f} | Timeframe: {TRADING['timeframe']}"
+    )
 
 
-def _maybe_retrain() -> None:
-    """Reentrena el modelo si han pasado más de `retrain_days` días."""
+def retrain_job() -> None:
+    """Reentrenamiento nocturno (02:30 AM Lima). Separado del ciclo de trading."""
     global _last_retrain_date
+    logger.info("=" * 50)
+    logger.info("REENTRENAMIENTO NOCTURNO INICIADO")
 
     days_since = (date.today() - _last_retrain_date).days
-    retrain_every = MODEL.get("retrain_days", 30)
+    retrain_every = MODEL.get("retrain_days", 14)
 
-    if not is_model_trained() or days_since >= retrain_every:
-        logger.info(f"Iniciando reentrenamiento del modelo (días desde último: {days_since})")
-        try:
-            df = fetch_historical_data(
-                symbol=TRADING["symbol"],
-                days=MODEL.get("historical_days", 730),
-                interval=TRADING["timeframe"],
-            )
-            df_features = calculate_features(df, MODEL.get("target_threshold", 0.003))
-            train_model(df_features, symbol=TRADING["symbol"])
-            _last_retrain_date = date.today()
+    if is_model_trained() and days_since < retrain_every:
+        logger.info(f"Reentrenamiento no necesario (días desde último: {days_since}/{retrain_every})")
+        return
 
-            from db_layer.repository import get_latest_snapshot as _snap
-            from db_layer.models import ModelMetric
-            # Notificar por Telegram (últimas métricas)
-            from sqlalchemy.orm import Session
-            from db_layer.models import engine
-            with Session(engine) as s:
-                last_metric = s.query(ModelMetric).order_by(
-                    ModelMetric.timestamp.desc()
-                ).first()
-                if last_metric:
-                    notifier.notify_retrain(last_metric.accuracy, last_metric.f1_score)
+    try:
+        df = fetch_historical_data(
+            symbol=TRADING["symbol"],
+            days=MODEL.get("historical_days", 60),
+            interval=TRADING["timeframe"],
+        )
+        df_features = calculate_features(df, MODEL.get("target_threshold", 0.002))
+        train_model(df_features, symbol=TRADING["symbol"])
+        _last_retrain_date = date.today()
 
-        except Exception as exc:
-            logger.error(f"Error durante el reentrenamiento: {exc}")
-            notifier.notify_error(f"Error en reentrenamiento: {exc}")
+        from db_layer.models import ModelMetric, engine
+        from sqlalchemy.orm import Session
+        with Session(engine) as s:
+            last_metric = s.query(ModelMetric).order_by(ModelMetric.timestamp.desc()).first()
+            if last_metric:
+                notifier.notify_retrain(last_metric.accuracy, last_metric.f1_score)
+
+        logger.info("Reentrenamiento nocturno completado.")
+    except Exception as exc:
+        logger.error(f"Error en reentrenamiento nocturno: {exc}", exc_info=True)
+        notifier.notify_error(f"Error reentrenamiento: {exc}")
 
 
 def _reset_daily_state(current_value: float) -> None:
-    """Resetea los contadores diarios al inicio de cada nuevo día."""
     global _daily_reset_date, _initial_daily_value
-
     today = date.today()
     if today != _daily_reset_date:
         _daily_reset_date = today
@@ -157,18 +151,13 @@ def _save_portfolio_snapshot(
 
 
 def sltp_check_cycle() -> None:
-    """
-    Verifica SL/TP de la posición abierta cada 5 minutos.
-    No ejecuta predicción ni abre posiciones — solo cierra si corresponde.
-    """
+    """Verifica SL/TP y trailing stop cada 5 minutos."""
     if broker is None:
         return
-
     symbol = TRADING["symbol"]
     try:
         if not get_open_trade(symbol):
             return
-
         exit_reason = broker.check_and_manage_open_position(symbol, risk_manager)
         if exit_reason:
             from db_layer.repository import get_all_trades
@@ -184,44 +173,53 @@ def sltp_check_cycle() -> None:
                     reason=exit_reason,
                     mode=TRADING["mode"],
                 )
-            logger.info(f"SL/TP ejecutado fuera del ciclo horario: motivo={exit_reason}")
+            logger.info(f"SL/TP/Trailing ejecutado: motivo={exit_reason}")
     except Exception as exc:
         logger.error(f"Error en verificación SL/TP: {exc}", exc_info=True)
 
 
+def heartbeat_job() -> None:
+    """Envía señal de vida por Telegram 3 veces al día."""
+    if broker is None:
+        return
+    try:
+        snapshot = get_latest_snapshot()
+        initial = TRADING["capital"]
+        total = snapshot.total_value if snapshot else initial
+        pct = (total / initial - 1) * 100 if initial > 0 else 0.0
+        notifier.notify_heartbeat(TRADING["mode"], total, pct)
+    except Exception as exc:
+        logger.warning(f"Error en heartbeat: {exc}")
+
+
 def trading_cycle() -> None:
     """
-    Ciclo principal ejecutado cada hora:
-    1. Verifica reentrenamiento
-    2. Obtiene últimos datos
-    3. Genera predicción
-    4. Evalúa riesgo
+    Ciclo principal cada 15 minutos:
+    1. Obtiene datos y extrae ATR
+    2. Verifica tendencia 4h
+    3. Genera predicción ML
+    4. Evalúa riesgo con ATR y filtro 4h
     5. Ejecuta orden si aplica
     6. Guarda snapshot del portfolio
     """
-    logger.info(f"{'='*50}")
+    logger.info(f"{'─'*50}")
     logger.info(f"CICLO: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    logger.info(f"{'='*50}")
+    logger.info(f"{'─'*50}")
 
     symbol = TRADING["symbol"]
     initial_capital = TRADING["capital"]
-    confidence_threshold = MODEL.get("prediction_threshold", 0.60)
+    confidence_threshold = MODEL.get("prediction_threshold", 0.65)
 
     try:
-        # 1. Reentrenamiento si es necesario
-        _maybe_retrain()
-
         if not is_model_trained():
             logger.warning("Modelo no entrenado. Saltando ciclo.")
             return
 
-        # 2. Estado actual del portfolio
         snapshot = get_latest_snapshot()
         cash = snapshot.cash_usd if snapshot else initial_capital
         open_trade = get_open_trade(symbol)
         position_value = 0.0
 
-        # 3. Precio actual
         current_price = broker.get_current_price(symbol)
         if not current_price:
             logger.warning("No se pudo obtener precio actual. Saltando ciclo.")
@@ -233,18 +231,17 @@ def trading_cycle() -> None:
         total_value = cash + position_value
         today_pnl = get_today_pnl()
 
-        # 3b. Contexto de mercado via DeepSeek (ajusta umbral dinámicamente)
+        # Análisis de sentimiento DeepSeek (ajusta umbral dinámicamente)
         from analysis.deepseek import get_market_context
         market_ctx = get_market_context()
         adjusted_threshold = round(confidence_threshold + market_ctx.modifier, 4)
-        adjusted_threshold = max(0.50, min(0.90, adjusted_threshold))
+        adjusted_threshold = max(0.55, min(0.90, adjusted_threshold))
         logger.info(
             f"Umbral ajustado: {adjusted_threshold:.0%} "
             f"(base={confidence_threshold:.0%}, mod={market_ctx.modifier:+.0%}, "
             f"mercado={market_ctx.sentiment.upper()})"
         )
 
-        # 4. Reseteo diario y actualización del gestor de riesgo
         _reset_daily_state(total_value)
         risk_manager.update_portfolio_state(
             current_value=total_value,
@@ -252,12 +249,12 @@ def trading_cycle() -> None:
             initial_daily_value=_initial_daily_value,
         )
 
-        # 5. Verificar SL/TP de posición abierta
+        # Verificar SL/TP y trailing de posición abierta
         if open_trade:
             exit_reason = broker.check_and_manage_open_position(symbol, risk_manager)
             if exit_reason:
-                closed = get_open_trade(symbol)
-                if not closed:  # Se cerró correctamente
+                closed_check = get_open_trade(symbol)
+                if not closed_check:
                     from db_layer.repository import get_all_trades
                     last_trade = get_all_trades()[0]
                     notifier.notify_trade_closed(
@@ -271,18 +268,33 @@ def trading_cycle() -> None:
                     )
                     cash += (last_trade.close_price or current_price) * (last_trade.quantity or 0)
                     position_value = 0.0
+                    open_trade = None
 
-        # 6. Obtener datos recientes y generar predicción
-        # Siempre usamos 30 días de historial (≥720 velas) para que los indicadores
-        # técnicos (EMA200, RSI, MACD) se calculen correctamente en la última vela.
-        df_pred = fetch_historical_data(symbol, days=30, interval="1h")
+        # Obtener datos para predicción
+        df_pred = fetch_historical_data(symbol, days=30, interval=TRADING["timeframe"])
         try:
             df_live_candle = fetch_latest_candle(symbol, EXCHANGE)
             if df_live_candle is not None and not df_live_candle.empty:
                 df_pred = pd.concat([df_pred, df_live_candle])
                 df_pred = df_pred[~df_pred.index.duplicated(keep="last")]
         except Exception:
-            pass  # el historial reciente ya tiene la última vela completa
+            pass
+
+        # Extraer ATR absoluto para SL/TP dinámico
+        atr_value = 0.0
+        try:
+            df_feat = calculate_features_inference(df_pred)
+            if not df_feat.empty:
+                atr_pct = float(df_feat["atr_pct"].iloc[-1])
+                atr_value = atr_pct * current_price
+                logger.info(f"ATR: {atr_pct:.4f} ({atr_value:.2f} USD)")
+        except Exception as exc:
+            logger.warning(f"No se pudo calcular ATR: {exc}")
+
+        # Filtro 4h: solo abrir posiciones en tendencia alcista mayor
+        trend_ok = fetch_higher_tf_bias(symbol)
+        if not trend_ok:
+            logger.info("Filtro 4h: mercado BAJISTA — no se abrirán nuevas posiciones")
 
         prediction = predict(df_pred, threshold=adjusted_threshold)
         if not prediction:
@@ -290,10 +302,11 @@ def trading_cycle() -> None:
         else:
             logger.info(
                 f"Predicción: {'COMPRAR' if prediction['signal'] == 1 else 'VENDER/ESPERAR'} "
-                f"| confianza={prediction['probability']:.1%}"
+                f"| confianza={prediction['probability']:.1%} "
+                f"| 4h={'ALCISTA' if trend_ok else 'BAJISTA'}"
             )
 
-            # 7. Cerrar posición si el modelo predice VENDER
+            # Cerrar posición si el modelo predice venta
             if open_trade and prediction["signal"] == 0:
                 closed = broker.close_position(
                     symbol=symbol,
@@ -317,7 +330,7 @@ def trading_cycle() -> None:
                     open_trade = None
                     logger.info("Posición cerrada por señal de venta del modelo.")
 
-            # 8. Evaluar si se puede abrir posición nueva
+            # Evaluar apertura de posición nueva con ATR y filtro 4h
             if not open_trade:
                 decision = risk_manager.evaluate_trade(
                     signal=prediction["signal"],
@@ -326,6 +339,8 @@ def trading_cycle() -> None:
                     current_price=current_price,
                     available_capital=cash,
                     has_open_position=False,
+                    atr_value=atr_value,
+                    trend_ok=trend_ok,
                 )
 
                 if decision.allowed:
@@ -344,14 +359,12 @@ def trading_cycle() -> None:
                         )
                 else:
                     logger.info(f"Operación bloqueada por riesgo: {decision.reason.value}")
-
                     if decision.reason.name in ("DAILY_LOSS_LIMIT", "MAX_DRAWDOWN"):
                         notifier.notify_circuit_breaker(
                             reason=decision.reason.value,
                             value=abs(today_pnl / initial_capital * 100),
                         )
 
-        # 8. Guardar snapshot
         _save_portfolio_snapshot(cash, position_value, initial_capital)
         logger.info(f"Snapshot guardado | total=${cash + position_value:,.2f}")
 
@@ -361,35 +374,57 @@ def trading_cycle() -> None:
 
 
 def start_bot() -> None:
-    """Punto de entrada principal. Inicia el scheduler y corre el bot."""
+    """Punto de entrada principal. Inicia el scheduler con todos los jobs."""
     _initialize()
 
-    # Ejecutar un ciclo inmediatamente al arrancar
     logger.info("Ejecutando primer ciclo inmediato...")
     trading_cycle()
 
-    # Luego correr cada hora al minuto 0 (ej: 10:00, 11:00, 12:00...)
     scheduler = BlockingScheduler(timezone="America/Lima")
+
+    # Ciclo de trading cada 15 minutos
     scheduler.add_job(
         trading_cycle,
-        trigger=CronTrigger(minute=0),
+        trigger=CronTrigger(minute="*/15"),
         id="trading_cycle",
-        name="Ciclo de trading horario",
-        misfire_grace_time=300,
+        name="Ciclo de trading 15m",
+        misfire_grace_time=120,
         coalesce=True,
     )
 
+    # Verificación SL/TP y trailing cada 5 minutos
     scheduler.add_job(
         sltp_check_cycle,
         trigger=CronTrigger(minute="*/5"),
         id="sltp_check",
-        name="Verificación SL/TP cada 5 minutos",
+        name="Verificación SL/TP + trailing",
         misfire_grace_time=60,
         coalesce=True,
     )
 
-    logger.info("Bot activo. Próxima ejecución: inicio de la siguiente hora.")
-    logger.info("Verificación SL/TP activa: cada 5 minutos.")
+    # Reentrenamiento nocturno — job separado para no bloquear trading
+    scheduler.add_job(
+        retrain_job,
+        trigger=CronTrigger(hour=2, minute=30),
+        id="retrain",
+        name="Reentrenamiento nocturno 02:30",
+        misfire_grace_time=3600,
+        coalesce=True,
+    )
+
+    # Heartbeats — 3 veces al día para confirmar que el bot está vivo
+    for h in [8, 14, 20]:
+        scheduler.add_job(
+            heartbeat_job,
+            trigger=CronTrigger(hour=h, minute=0),
+            id=f"heartbeat_{h}h",
+            name=f"Heartbeat {h}:00",
+            misfire_grace_time=300,
+            coalesce=True,
+        )
+
+    logger.info("Bot activo.")
+    logger.info("Ciclos: trading 15m | SL/TP+trailing 5m | Retrain 02:30 | Heartbeat 08/14/20h")
     logger.info("Presiona Ctrl+C para detener el bot.")
 
     try:
