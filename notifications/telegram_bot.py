@@ -64,8 +64,9 @@ class TelegramNotifier:
         reason_map = {
             "take_profit": "Take Profit alcanzado",
             "stop_loss": "Stop Loss activado",
+            "trailing_stop": "Trailing Stop activado",
             "signal": "Señal de venta",
-            "manual": "Cierre manual",
+            "manual": "Cierre manual (emergencia)",
         }
         msg = (
             f"{emoji} <b>POSICIÓN CERRADA</b> [{mode.upper()}]\n"
@@ -100,6 +101,19 @@ class TelegramNotifier:
             f"Capital libre: <b>${capital:,.2f}</b>\n"
             f"En posición: ${position_value:,.2f}\n"
             f"PnL total: <b>${total_pnl:+.2f} ({total_pnl_pct:+.2f}%)</b>"
+        )
+        self._send(msg)
+
+    def notify_heartbeat(
+        self, mode: str, total_value: float, total_pnl_pct: float
+    ) -> None:
+        """Confirma que el bot sigue vivo. Se envía 3 veces al día."""
+        from datetime import datetime
+        msg = (
+            f"💚 <b>BOT ACTIVO</b> [{mode.upper()}]\n"
+            f"Portfolio: <b>${total_value:,.2f}</b>\n"
+            f"Retorno total: <b>{total_pnl_pct:+.2f}%</b>\n"
+            f"Hora: {datetime.now().strftime('%H:%M')} (Lima)"
         )
         self._send(msg)
 
