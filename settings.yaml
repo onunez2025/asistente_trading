@@ -1,40 +1,44 @@
 # ============================================================
-#   ASISTENTE TRADING - ARCHIVO DE CONFIGURACIÓN PRINCIPAL
-#   Edita los valores aquí para personalizar el bot
+#   ASISTENTE TRADING v2 — CONFIGURACIÓN PRINCIPAL
 # ============================================================
 
 trading:
-  symbol: "BTC/USDT"          # Par que va a operar el bot
-  timeframe: "1h"             # Temporalidad (1h = cada hora)
-  capital: 27                 # Capital inicial en USD (~100 soles peruanos)
-  mode: "paper"               # NUNCA cambiar a "live" sin probar antes
+  symbol: "BTC/USDT"
+  timeframe: "15m"            # Cambiado de 1h a 15m — más señales por día
+  capital: 1000.0             # Capital PAPER para mostrar a inversores
+  mode: "paper"               # Nunca cambiar a "live" sin meses de paper exitoso
 
 risk:
-  max_position_size: 0.50     # 50% del capital por operación (necesario con capital pequeño)
-  stop_loss: 0.02             # Stop Loss: cierra si pierde 2%
-  take_profit: 0.05           # Take Profit: cierra si gana 5% (ratio 1:2.5)
-  daily_loss_limit: 0.05      # Detiene el bot si pierde 5% en el día
-  max_drawdown: 0.20          # Detiene el bot si el portfolio cae 20% desde el pico
-  max_open_positions: 1       # Solo 1 operación abierta a la vez
+  max_position_size: 0.30     # 30% del capital por operación
+  stop_loss: 0.02             # Fallback fijo si ATR no disponible
+  take_profit: 0.04           # Fallback fijo si ATR no disponible
+  atr_sl_multiplier: 1.5      # SL = 1.5 × ATR(14) — adapta a volatilidad
+  atr_tp_multiplier: 3.0      # TP = 3.0 × ATR(14) — ratio riesgo/recompensa 1:2
+  trailing_breakeven_pct: 1.5 # Mover SL a breakeven cuando PnL >= 1.5%
+  trailing_activate_pct: 3.0  # Activar trailing dinámico cuando PnL >= 3.0%
+  trailing_distance_pct: 1.5  # SL trailing = peak × (1 - 1.5%)
+  daily_loss_limit: 0.05      # Detiene bot si pierde 5% en el día
+  max_drawdown: 0.20          # Detiene bot si portfolio cae 20% desde pico
+  max_open_positions: 1
 
 model:
-  retrain_days: 30            # Reentrenar el modelo cada 30 días
-  prediction_threshold: 0.55  # Confianza mínima para comprar (>55% probabilidad)
-  target_threshold: 0.002     # Señal válida si el precio se mueve más de 0.2%
-  historical_days: 365        # Días de datos históricos para entrenamiento
+  retrain_days: 14            # Reentrenar cada 2 semanas (15m necesita más frecuencia)
+  prediction_threshold: 0.65  # Más alto que en 1h para compensar ruido de 15m
+  target_threshold: 0.002     # 0.2% — movimiento mínimo válido para señal
+  historical_days: 60         # 60 días × 96 velas/día = ~5,760 velas de 15m
 
 exchange:
   name: "binance"
-  testnet: true               # true = red de prueba, false = dinero real
-  api_key: ""                 # Dejar vacío hasta obtener las claves
-  api_secret: ""              # Dejar vacío hasta obtener las claves
-  commission: 0.001           # 0.1% por operación (estándar Binance spot)
+  testnet: true
+  api_key: ""
+  api_secret: ""
+  commission: 0.001           # 0.1% por operación Binance spot
 
 telegram:
-  token: ""                   # Token del bot de Telegram (se configura después)
-  chat_id: ""                 # Tu Chat ID de Telegram (se configura después)
-  enabled: false              # Cambiar a true cuando configures Telegram
+  token: ""
+  chat_id: ""
+  enabled: false
 
 logging:
-  level: "INFO"               # Nivel de detalle de los logs (INFO, DEBUG, WARNING)
+  level: "INFO"
   file: "logs/trading.log"
