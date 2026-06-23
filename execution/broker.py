@@ -46,25 +46,38 @@ class Broker:
         logger.info("Conectado al exchange (autenticado).")
         return exchange
 
+    # Exchanges públicos sin restricción geográfica, en orden de prioridad
+    _PUBLIC_EXCHANGES = ["kucoin", "bybit", "okx"]
+
     def _connect_public(self) -> Optional[ccxt.Exchange]:
-        """Conexión pública sin API keys — para precios en paper mode."""
-        try:
-            exchange_class = getattr(ccxt, self.exchange_cfg.get("name", "binance"))
-            return exchange_class({"enableRateLimit": True})
-        except Exception as exc:
-            logger.warning(f"No se pudo crear conexión pública CCXT: {exc}")
-            return None
+        """
+        Conexión pública sin API keys.
+        Prueba KuCoin/Bybit/OKX primero (no tienen restricción 451 de Binance).
+        """
+        configured = self.exchange_cfg.get("name", "binance")
+        candidates = self._PUBLIC_EXCHANGES if configured == "binance" else [configured] + self._PUBLIC_EXCHANGES
+        for name in candidates:
+            try:
+                exchange_class = getattr(ccxt, name)
+                ex = exchange_class({"enableRateLimit": True})
+                logger.info(f"Exchange público conectado: {name}")
+                return ex
+            except Exception:
+                continue
+        logger.warning("No se pudo conectar a ningún exchange público. Se usará yfinance.")
+        return None
 
     def get_current_price(self, symbol: str) -> Optional[float]:
-        """Obtiene el precio actual. CCXT público primero, fallback a yfinance."""
-        try:
-            if self._public_exchange:
+        """Obtiene el precio actual. Exchange público primero, fallback a yfinance."""
+        if self._public_exchange:
+            try:
                 ticker = self._public_exchange.fetch_ticker(symbol)
                 price = float(ticker["last"])
-                logger.debug(f"Precio CCXT público {symbol}: {price:.4f}")
+                logger.debug(f"Precio {self._public_exchange.id} {symbol}: {price:.4f}")
                 return price
-        except Exception as exc:
-            logger.warning(f"CCXT público falló para {symbol}: {exc}. Fallback a yfinance.")
+            except Exception:
+                # Silencioso — fallback inmediato a yfinance
+                pass
 
         try:
             import yfinance as yf
@@ -72,9 +85,11 @@ class Broker:
             ticker = _SYMBOL_MAP.get(symbol, symbol.replace("/", "-").replace("USDT", "USD"))
             data = yf.download(ticker, period="1d", interval="1m", progress=False, auto_adjust=True)
             if data is not None and not data.empty:
-                return float(data["Close"].squeeze().iloc[-1])
+                price = float(data["Close"].squeeze().iloc[-1])
+                logger.debug(f"Precio yfinance {symbol}: {price:.4f}")
+                return price
         except Exception as exc:
-            logger.error(f"Fallback yfinance también falló para {symbol}: {exc}")
+            logger.error(f"Precio no disponible para {symbol}: {exc}")
 
         return None
 

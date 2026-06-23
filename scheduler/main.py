@@ -42,10 +42,31 @@ broker: Broker = None
 risk_manager: RiskManager = None
 
 
+def _reset_portfolio_if_requested() -> None:
+    """Si RESET_PORTFOLIO=true, borra snapshots y posiciones abiertas para arrancar desde cero."""
+    if os.environ.get("RESET_PORTFOLIO", "").lower() not in ("true", "1", "yes"):
+        return
+    from db_layer.models import PortfolioSnapshot, engine as _engine
+    from db_layer.repository import get_open_trade
+    from sqlalchemy.orm import Session
+    logger.warning("RESET_PORTFOLIO=true detectado — limpiando historial de portfolio...")
+    with Session(_engine) as s:
+        s.query(PortfolioSnapshot).delete()
+        s.commit()
+    symbol = TRADING.get("symbol", "BTC/USDT")
+    open_trade = get_open_trade(symbol)
+    if open_trade:
+        from db_layer.repository import close_trade
+        close_trade(open_trade.id, open_trade.price, "manual", 0)
+        logger.warning("Posición abierta cerrada en reset.")
+    logger.warning(f"Portfolio reseteado. Capital inicial: ${TRADING['capital']:,.2f}")
+
+
 def _initialize() -> None:
     global notifier, broker, risk_manager, _last_retrain_date
 
     init_db()
+    _reset_portfolio_if_requested()
 
     notifier = TelegramNotifier(
         token=TELEGRAM.get("token", ""),
@@ -74,6 +95,11 @@ def _initialize() -> None:
             _last_retrain_date = last_metric.timestamp.date()
             logger.info(f"Último entrenamiento detectado en BD: {_last_retrain_date}")
 
+    # Reentrenar al arrancar si se pidió forzar
+    if os.environ.get("FORCE_RETRAIN", "").lower() in ("true", "1", "yes"):
+        logger.info("FORCE_RETRAIN detectado — lanzando reentrenamiento al inicio...")
+        retrain_job()
+
     logger.info("Bot inicializado correctamente.")
     logger.info(
         f"Modo: {TRADING['mode'].upper()} | Par: {TRADING['symbol']} | "
@@ -89,10 +115,13 @@ def retrain_job() -> None:
 
     days_since = (date.today() - _last_retrain_date).days
     retrain_every = MODEL.get("retrain_days", 14)
+    force = os.environ.get("FORCE_RETRAIN", "").lower() in ("true", "1", "yes")
 
-    if is_model_trained() and days_since < retrain_every:
+    if not force and is_model_trained() and days_since < retrain_every:
         logger.info(f"Reentrenamiento no necesario (días desde último: {days_since}/{retrain_every})")
         return
+    if force:
+        logger.info("FORCE_RETRAIN=true — reentrenamiento forzado")
 
     try:
         df = fetch_historical_data(
