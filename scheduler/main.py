@@ -3,6 +3,7 @@ Loop principal del bot — ciclo de 15 minutos.
 Reentrenamiento en job separado a las 02:30 AM (no bloquea el ciclo de trading).
 """
 import logging
+import os
 import sys
 from datetime import datetime, date
 from pathlib import Path
