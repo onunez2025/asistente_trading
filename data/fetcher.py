@@ -156,10 +156,15 @@ def fetch_higher_tf_bias(symbol: str) -> bool:
         ema20 = close_4h.ewm(span=20, adjust=False).mean()
         ema50 = close_4h.ewm(span=50, adjust=False).mean()
 
-        bullish = bool(ema20.iloc[-1] > ema50.iloc[-1])
+        e20 = ema20.iloc[-1]
+        e50 = ema50.iloc[-1]
+        diff_pct = (e20 - e50) / (e50 + 1e-10)
+        # Permite operar en tendencia alcista O lateral (EMA20 no más del 1% por debajo de EMA50)
+        bullish = diff_pct > -0.01
+        trend_label = "ALCISTA" if e20 > e50 else ("LATERAL" if bullish else "BAJISTA")
         logger.info(
-            f"Bias 4h {symbol}: EMA20={ema20.iloc[-1]:.2f} {'>' if bullish else '<='} "
-            f"EMA50={ema50.iloc[-1]:.2f} → {'ALCISTA' if bullish else 'BAJISTA'}"
+            f"Bias 4h {symbol}: EMA20={e20:.2f} vs EMA50={e50:.2f} "
+            f"({diff_pct:+.2%}) → {trend_label}"
         )
         return bullish
 
