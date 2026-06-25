@@ -23,7 +23,7 @@ risk:
 
 model:
   retrain_days: 14            # Reentrenar cada 2 semanas (15m necesita más frecuencia)
-  prediction_threshold: 0.65  # Más alto que en 1h para compensar ruido de 15m
+  prediction_threshold: 0.55  # Bajado de 0.65 — modelo ~50% acc necesita umbral más bajo
   target_threshold: 0.002     # 0.2% — movimiento mínimo válido para señal
   historical_days: 60         # 60 días × 96 velas/día = ~5,760 velas de 15m
 
